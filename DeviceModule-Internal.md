@@ -88,7 +88,7 @@ DeviceModule 解決的核心問題：**透過 BLE（Bluetooth Low Energy）與�
       └── adapter.consumeNotification(value)
            ├── B20FrameAssembler.feed()  拼包，湊齊完整幀才繼續
            ├── 依功能碼解析：0xB0(原始感測器)／0x85(即時數據)／0x9F(裝置資訊)
-           └── List<SensorEvent> → dispatchSensorEvent() → 對應 Health/Imu/Ppg/Ecg/Gsr/DeviceInfo Listener
+           └── List<SensorEvent> → dispatchSensorEvent() → 對應 Health/Imu/Ppg/DeviceInfo Listener
 ```
 
 ---
@@ -304,8 +304,6 @@ private fun dispatchSensorEvent(event: SensorEvent) {
         is SensorEvent.Health     -> healthListeners.forEach { it.onHealthData(event.data) }
         is SensorEvent.Imu        -> imuListeners.forEach { it.onImuData(event.data) }
         is SensorEvent.Ppg        -> ppgListeners.forEach { it.onPpgData(event.data) }
-        is SensorEvent.Ecg        -> ecgListeners.forEach { it.onEcgData(event.data) }
-        is SensorEvent.Gsr        -> gsrListeners.forEach { it.onGsrData(event.data) }
         is SensorEvent.DeviceInfo -> deviceInfoListeners.forEach { it.onDeviceInfo(event.data) }
     }
 }
@@ -436,7 +434,7 @@ B20AdvertisementParser, B20Adapter}.kt`
 剛好對應一筆完整、可直接解析的資料」。B20 的協議完全不符合這個假設：
 
 - 服務 `0xFFF0` 下只有一個 notify characteristic（`0xFFF1`）承載**所有**資料類型（裝置資訊、即時數據、
-  IMU/PPG/ECG/GSR 原始數據流），一個 write characteristic（`0xFFF2`）發送請求
+  IMU/PPG 原始數據流），一個 write characteristic（`0xFFF2`）發送請求
 - 資料以「請求/響應幀」為單位傳輸，單一幀最長 512Byte，遠超預設 BLE ATT MTU（23Byte），
   一個幀常需跨多次 `onCharacteristicChanged()` 才能收齊（拼包）
 - 一個幀解析後可能對應零筆（如 ack）、一筆（如即時數據）或多筆（如 IMU 幀含多個取樣點）資料
@@ -538,7 +536,7 @@ private fun startFramedProtocolSession(gatt: BluetoothGatt, adapter: IFramedBran
 = 2000ms 視為失敗但不中斷流程）才送下一筆。這是修正真實裝置測試時發現的問題：`buildInitCommands()`
 以 `forEach` 背靠背連續呼叫 `writeCharacteristic()`（先前實作未等待完成回呼），Android BLE 堆疊
 在前一筆寫入尚未完成前再次呼叫容易靜默失敗（回傳 false 但未檢查），導致 4 筆初始化幀中最後一筆
-「啟用感測器」（`ENTITY_SENSOR_CONFIG_SET`）沒有真正送達裝置，症狀是連線成功但 IMU/PPG/ECG/GSR
+「啟用感測器」（`ENTITY_SENSOR_CONFIG_SET`）沒有真正送達裝置，症狀是連線成功但 IMU/PPG
 從未收到任何資料。目前 `writeFrame()` 只被 `buildInitCommands()`/`buildPollCommands()` 呼叫；
 先前心率／血氧預警（0x0A）曾透過另一個 `sendFramedCommand()` 私有方法共用同一把鎖送出任意時刻的
 指令，該功能已改為 App 端自行判斷（見「心率／血氧預警」章節），`sendFramedCommand()` 隨之移除，
@@ -557,19 +555,19 @@ private fun startFramedProtocolSession(gatt: BluetoothGatt, adapter: IFramedBran
 
 1. 時間同步（功能碼 `0x04`，實體 `0x01`）：目前系統時間（epoch 秒）與時區偏移
 2. 查詢裝置資訊（功能碼 `0x1F`，實體 `0x01`）：回應觸發 `SensorEvent.DeviceInfo`
-3. 查詢感測器配置（功能碼 `0x30`，實體 `0x01`）：回應更新 `B20SensorConfig`（IMU/PPG/ECG/GSR 的
+3. 查詢感測器配置（功能碼 `0x30`，實體 `0x01`）：回應更新 `B20SensorConfig`（IMU/PPG 的
    取樣率、精度、量程），供 IMU 原始數據換算使用
 4. 啟用全部感測器（功能碼 `0x30`，實體 `0x02`）：IMU `ctrl=0x07`（三軸全開）、PPG `ctrl=0x07`
-   （三通道全開）、ECG/GSR `ctrl=0x01`
+   （三通道全開）
 
 查詢感測器配置與啟用感測器兩者皆走相同功能碼 `0x30`（響應固定為 `0xB0`），僅實體碼不同，
 與廠商文件「B20原始數據文件」的定義一致。
 
-### 原始數據流解析（IMU/PPG/ECG/GSR）
+### 原始數據流解析（IMU/PPG）
 
 **檔案**：`brand/b20/B20Adapter.kt`
 
-四種串流的響應皆為功能碼 `0xB0`，以實體碼 `0x81`/`0x82`/`0x83`/`0x84` 區分，共用 header：
+兩種串流的響應皆為功能碼 `0xB0`，以實體碼 `0x81`/`0x82` 區分，共用 header：
 
 ```
 實體碼(1B) + 旗標(1B) + 封包ID(4B LE) + 裝置端時間戳(4B LE) + 樣本序列
@@ -584,7 +582,7 @@ private fun startFramedProtocolSession(gatt: BluetoothGatt, adapter: IFramedBran
 - IMU 換算：`raw × range × 係數 / ((1 << (depth-1)) - 1)`（Acce 係數為重力加速度 9.81，
   Gyro 係數為 `π/180` 換算為 rad/s），换算所需的 `range`/`depth` 來自查詢到的 `B20SensorConfig`，
   查詢完成前使用廠商文件範例值作為保守預設（`B20SensorConfig.DEFAULT_IMU`）
-- PPG/ECG/GSR：廠商文件未提供轉換公式，保留為原始計數值（`readInt24LE()` 讀取為有號整數）
+- PPG：廠商文件未提供轉換公式，保留為原始計數值（`readInt24LE()` 讀取為有號整數）
 
 ### HRV 資訊解析
 
@@ -806,7 +804,7 @@ reconnectAttempt = 0     // 重置計數
 | 寫入指令長度 | 假設協商後的 MTU 足以容納單次寫入的完整幀（`writeCharacteristic()` 單次呼叫，未實作長寫入/分段） | 若未來指令載荷可能超過協商 MTU，需改用 BLE Long Write（Prepare Write Request 佇列） |
 | MTU 協商時機 | `requestMtu()` 為 best-effort，未等待 `onMtuChanged()` 結果即固定延遲 300ms 後送出初始化幀 | 若目標裝置對協商時序敏感，可改為等待 `onMtuChanged()` 回調再送出，並加上逾時保護 |
 | 幀重組錯誤處理 | 校驗碼或包尾不符時僅捨棄 1 byte 嘗試重新同步，無記錄/告警機制 | 可加入損壞幀計數與日誌，利於現場除錯與訊號品質評估 |
-| 封包連續性 | `packetId` 已隨 IMU/PPG/ECG/GSR 資料回報，但呼叫端需自行比對是否跳號 | 可在 DeviceModule 內建跳號偵測與告警，減少每個呼叫端重複實作 |
-| PPG/ECG/GSR 物理量換算 | 廠商文件未提供換算公式，維持原始計數值 | 待廠商補充換算公式或現場校正參數後再實作 |
+| 封包連續性 | `packetId` 已隨 IMU/PPG 資料回報，但呼叫端需自行比對是否跳號 | 可在 DeviceModule 內建跳號偵測與告警，減少每個呼叫端重複實作 |
+| PPG 物理量換算 | 廠商文件未提供換算公式，維持原始計數值 | 待廠商補充換算公式或現場校正參數後再實作 |
 
 

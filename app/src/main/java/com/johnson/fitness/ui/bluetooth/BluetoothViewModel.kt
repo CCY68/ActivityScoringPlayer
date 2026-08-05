@@ -6,15 +6,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitness.device.api.IDeviceInfoListener
 import com.fitness.device.api.IDeviceManager
-import com.fitness.device.api.IEcgDataListener
-import com.fitness.device.api.IGsrDataListener
 import com.fitness.device.api.IPpgDataListener
 import com.fitness.device.api.IScanListener
 import com.fitness.device.model.B20DeviceInfo
 import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.DeviceInfo
-import com.fitness.device.model.EcgData
-import com.fitness.device.model.GsrData
 import com.fitness.device.model.PpgData
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -43,16 +39,6 @@ class BluetoothViewModel(
             _state.value = _state.value.copy(latestPpg = data)
         }
     }
-    private val ecgListener = object : IEcgDataListener {
-        override fun onEcgData(data: EcgData) {
-            _state.value = _state.value.copy(latestEcg = data)
-        }
-    }
-    private val gsrListener = object : IGsrDataListener {
-        override fun onGsrData(data: GsrData) {
-            _state.value = _state.value.copy(latestGsr = data)
-        }
-    }
     private val deviceInfoListener = object : IDeviceInfoListener {
         override fun onDeviceInfo(info: B20DeviceInfo) {
             _state.value = _state.value.copy(b20DeviceInfo = info)
@@ -61,8 +47,6 @@ class BluetoothViewModel(
 
     init {
         deviceManager.addPpgDataListener(ppgListener)
-        deviceManager.addEcgDataListener(ecgListener)
-        deviceManager.addGsrDataListener(gsrListener)
         deviceManager.addDeviceInfoListener(deviceInfoListener)
         viewModelScope.launch {
             deviceManager.discoveredDevices.collect { devices ->
@@ -92,9 +76,7 @@ class BluetoothViewModel(
                 deviceManager.disconnect()
                 _state.value = _state.value.copy(
                     b20DeviceInfo = null,
-                    latestPpg = null,
-                    latestEcg = null,
-                    latestGsr = null
+                    latestPpg = null
                 )
             }
         }
@@ -146,8 +128,6 @@ class BluetoothViewModel(
     override fun onCleared() {
         super.onCleared()
         deviceManager.removePpgDataListener(ppgListener)
-        deviceManager.removeEcgDataListener(ecgListener)
-        deviceManager.removeGsrDataListener(gsrListener)
         deviceManager.removeDeviceInfoListener(deviceInfoListener)
         deviceManager.release()
     }

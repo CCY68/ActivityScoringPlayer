@@ -4,8 +4,6 @@ import com.fitness.device.model.B20DeviceInfo
 import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceType
-import com.fitness.device.model.EcgData
-import com.fitness.device.model.GsrData
 import com.fitness.device.model.PpgData
 import com.fitness.device.model.SignalQuality
 
@@ -26,9 +24,7 @@ data class BluetoothState(
     val batteryLevel: Int? = null,
     // B20 手環（幀式協議）專屬資料，其他品牌不會觸發，維持 null
     val b20DeviceInfo: B20DeviceInfo? = null,
-    val latestPpg: PpgData? = null,
-    val latestEcg: EcgData? = null,
-    val latestGsr: GsrData? = null
+    val latestPpg: PpgData? = null
 )
 
 sealed class BluetoothIntent {
