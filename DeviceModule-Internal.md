@@ -187,6 +187,22 @@ gattConnection = null
 
 主動斷線（`disconnect()`）同樣呼叫 `close()`，確保資源完整釋放。
 
+### `Connected` 狀態的 `DeviceInfo` 來源
+
+`onServicesDiscovered()` 組成 `ConnectionState.Connected(info)` 時，`info` 依序取自：
+
+1. `_discoveredDevices.value.find { it.address == address }`——當次掃描清單裡的最新資訊（含
+   name/brand/rssi 等），一般手動掃描 + 連線的流程會走這條
+2. `lastConnectedDevice`——`connect(device)` 呼叫當下傳入的 `DeviceInfo`；App 啟動時的自動重連
+   （直接呼叫 `connect()`，未先 `startScan()`）掃描清單是空的，會落到這一層
+3. `DeviceInfo(null, address, 0)`——以上兩者都拿不到時的最後 fallback，`name` 會是 `null`
+
+第 2 層是修正實測時發現的問題：先前只有第 1、3 層，自動重連時掃描清單必為空，會直接落到
+`name = null` 的 fallback，導致 UI 顯示「未知裝置」；即使呼叫端已經從持久化儲存還原出正確的
+`name`/`brand` 傳給 `connect()`，也會在這裡被覆蓋掉。呼叫端若要在自動重連情境下正確顯示裝置
+資訊，記得連同 `brand` 一併持久化（`brand` 決定 `BrandAdapterFactory.create()` 選到哪個
+`IBrandAdapter`，光記 `address`/`name` 不夠，見「品牌適配器層」）。
+
 ---
 
 ## BLE Notification 啟用
@@ -517,6 +533,18 @@ private fun startFramedProtocolSession(gatt: BluetoothGatt, adapter: IFramedBran
 `writeFrame()` 依 API 版本選擇 `BluetoothGatt.writeCharacteristic()` 的新舊簽名，寫入類型固定為
 `WRITE_TYPE_DEFAULT`（需等待裝置回應）。
 
+**寫入序列化**：`writeFrame()` 是 `suspend fun`，內部以 `Mutex` 序列化——同一時間僅送出一筆、
+等待 `onCharacteristicWrite` 回呼觸發（`CompletableDeferred<Boolean>`，逾時 `WRITE_TIMEOUT_MS`
+= 2000ms 視為失敗但不中斷流程）才送下一筆。這是修正真實裝置測試時發現的問題：`buildInitCommands()`
+以 `forEach` 背靠背連續呼叫 `writeCharacteristic()`（先前實作未等待完成回呼），Android BLE 堆疊
+在前一筆寫入尚未完成前再次呼叫容易靜默失敗（回傳 false 但未檢查），導致 4 筆初始化幀中最後一筆
+「啟用感測器」（`ENTITY_SENSOR_CONFIG_SET`）沒有真正送達裝置，症狀是連線成功但 IMU/PPG/ECG/GSR
+從未收到任何資料。目前 `writeFrame()` 只被 `buildInitCommands()`/`buildPollCommands()` 呼叫；
+先前心率／血氧預警（0x0A）曾透過另一個 `sendFramedCommand()` 私有方法共用同一把鎖送出任意時刻的
+指令，該功能已改為 App 端自行判斷（見「心率／血氧預警」章節），`sendFramedCommand()` 隨之移除，
+若未來又有「連線後任意時刻觸發送出一幀」的需求，可參考當時的設計：共用同一個 `writeMutex`，
+避免跟 `buildInitCommands()`/`buildPollCommands()` 彼此搶佔佇列。
+
 ### 輪詢機制（即時數據無主動推送）
 
 廠商文件「0x05 - 實時數據」只定義了 App 主動請求、終端回應一次的模式，並無裝置端主動推送機制。
@@ -565,44 +593,64 @@ private fun startFramedProtocolSession(gatt: BluetoothGatt, adapter: IFramedBran
 `0x05` 實時數據回應的 `hrv` 欄位（`"SDNN,TP,LF,HF,VLF"`，協議原始值 x1000）與既有 `bp`/
 `battery`/`basic_data` 欄位一樣，以 CSV 字串 `split(",")` + `getOrNull(i)?.trim()?.toXxxOrNull()`
 的既有慣例解析，五個數值須全部成功解析才會組成 `HrvData`（任一缺漏則整體為 `null`，不做部分填入），
-最終掛在 `HealthData.hrvDetail`。刻意不重用既有的 `HealthData.hrv: Float?` 欄位，因為該欄位是
-`GenericBrandAdapter`（非幀式協議品牌）用來表示單一 HRV 數值的既有語義，與此處的五維指標不相容。
+最終掛在 `HealthData.hrvDetail`。
 
-### 心率／血氧預警（0x0A）
+`HealthData.hrv: Float?` 這個既有單一數值欄位（原為 `GenericBrandAdapter` 等非幀式協議品牌設計）
+會回填 `hrvDetail.sdnn`——SDNN 是 HRV 最常用的單一數值代表指標，單位同為 ms，讓不同品牌都能透過
+同一欄位取得「一個」HRV 數值；需要完整五維指標時仍應讀取 `hrvDetail`。`hrvDetail` 為 `null`
+（五個數值任一缺漏）時 `hrv` 也隨之為 `null`，兩者狀態一致。
 
-**檔案**：`brand/b20/B20Adapter.kt`、`ble/BleDeviceManager.kt`
+### 心率／血氧預警（App 端自行判斷，2026-08-05 取代協議層 0x0A 實作）
 
-這是第一個需要「連線後、由呼叫端隨時觸發送出指令」的功能，既有的 `IFramedBrandAdapter` 只有
-`buildInitCommands()`（連線時一次性）與 `buildPollCommands()`（固定週期輪詢）兩種送幀時機，
-並無「呼叫端任意時刻送出一筆指令」的機制，也完全沒有 request/response 配對（correlation）的
-基礎設施——這是本功能設計時確認過的既有架構缺口（見下方「已知限制」）。
+**檔案**：`ble/BleDeviceManager.kt`、`api/IHealthWarningListener.kt`、`model/HealthMetricType.kt`
 
-設計上刻意選擇**沿用既有的 fire-and-forget + Listener 模式**，而非新增 `suspend fun ... :
-Result<...>` 這種需要配對回應的機制：
+原本的實作走裝置協議 0x0A（`B20Adapter.buildSetWarningFrame()`/`buildReadWarningFrame()`），
+App 設定門檻＋週期交給裝置判斷；裝置不會主動推播「已觸發」事件，只把事件寫進自己的「預警記錄」
+（0x31/0x32/0x33），App 端還要另外輪詢讀取——這整套（`IWarningListener`/`WarningConfig`/
+`WarningType`/`WarningRecord`，以及 `B20Adapter` 對應的幀建構/解析、`BleDeviceManager` 的
+`sendFramedCommand()` 私有方法）**已整個移除**，改成完全在 App 端（`BleDeviceManager` 內部）
+自行判斷，不再依賴任何裝置協議：
 
-1. `B20Adapter.buildSetWarningFrame(type, config)` / `buildReadWarningFrame(type)` 為公開方法，
-   直接組建完整幀（功能碼 `0x0A`，實體 `0x01`/`0x02`），交由呼叫端（`BleDeviceManager`）決定何時送出
-2. `BleDeviceManager` 新增 `sendFramedCommand(frame)` 私有方法：取得目前的 `gattConnection` 與
-   `currentAdapter as? IFramedBrandAdapter`，兩者皆非 `null` 才呼叫既有的 `writeFrame()`；
-   未連線或非幀式協議裝置時靜默忽略（不拋例外，呼叫端無法得知「送出失敗」，這是 fire-and-forget
-   設計的已知取捨）
-3. `IDeviceManager.setHeartRateWarning()`/`setSpo2Warning()` 等公開方法內部 `currentAdapter as?
-   B20Adapter` 直接呼叫上述 frame builder——這裡刻意直接耦合 `B20Adapter` 具體類別，而非在
-   `IFramedBrandAdapter` 介面新增通用方法，因為預警是 B20 專屬功能且目前只有 B20 一種
-   `IFramedBrandAdapter` 實作，提前抽象成介面方法屬於不必要的預先設計
-4. 回應解析：`0x8A` 實體 `0x01`（設置 ACK，僅回報類型）與 `0x02`（讀取結果，含 JSON 設定）
-   的載荷格式為「實體(1B) + 預警類型(1B) + [JSON + 0x00]」，中間多插入了「預警類型」欄位，
-   與既有 `B20Protocol.parseEntityJsonPayload()` 假設的「實體(1B) + JSON + 0x00」格式不同，
-   故 `handleWarningFrame()` 手動解析，不重用該工具函式
-5. 異常響應：協議「帧异常响应」的通用格式（`指令碼(1B) + JSON{code,msg} + 0x00`）恰好與
-   `parseEntityJsonPayload()` 格式一致，故 `handleWarningErrorFrame()` 直接重用；但既有
-   `handleFrame()` 開頭有 `if (B20Protocol.isError(frame.funcCode)) return emptyList()`
-   會全域丟棄所有異常幀，因此把 `FUNC_WARNING_RESP_ERROR`（`0x8A` 疊加異常位 `0xCA`）的特判
-   移到這行**之前**，才不會被提前攔截——這個順序容易在新增其他功能碼的異常處理時被遺漏，需注意
+```kotlin
+// BleDeviceManager 內部欄位
+private val healthWarningListeners = CopyOnWriteArrayList<IHealthWarningListener>()
+@Volatile private var heartRateWarningRange: IntRange? = null
+@Volatile private var spo2WarningRange: IntRange? = null
 
-目前僅實作 `WarningType.HEART_RATE`/`SPO2` 兩種類型（協議另有血壓預警 `0x03`），且未實作
-「預警記錄」（`0x31` 讀取 / `0x32` 刪除 / `0x33` 刪除所有）——這些超出本次需求範圍，未來如有
-需要可比照本節的 request frame builder + Listener 回報模式擴充。
+private fun checkHealthWarning(data: HealthData) {
+    data.heartRate?.let { hr ->
+        heartRateWarningRange?.let { range ->
+            if (hr !in range) {
+                healthWarningListeners.forEach { it.onHealthWarning(HealthMetricType.HEART_RATE, hr, range) }
+            }
+        }
+    }
+    data.spo2?.let { spo2 ->
+        spo2WarningRange?.let { range ->
+            if (spo2 !in range) {
+                healthWarningListeners.forEach { it.onHealthWarning(HealthMetricType.SPO2, spo2, range) }
+            }
+        }
+    }
+}
+```
+
+`checkHealthWarning()` 掛在既有的兩個 `HealthData` 分派點之後（一般品牌的 `dispatchCharacteristic()`
+與幀式協議裝置的 `dispatchSensorEvent()`），跟 `healthListeners.forEach { it.onHealthData(data) }`
+同一個位置各呼叫一次——**判斷邏輯純粹是 App 端對已經解析好的 `HealthData` 做範圍比對，跟裝置是
+哪個品牌、走哪種協議完全無關**，這也是這次改版比舊版好維護的地方：舊版的 0x0A 預警是 B20 專屬
+（協議層功能），新版對所有品牌一視同仁。
+
+範圍用 Kotlin 內建的 `IntRange`（`min..max`）表達，不另外定義 config 資料類別——`IDeviceManager
+.setHeartRateWarningRange(range: IntRange?)`/`setSpo2WarningRange(range: IntRange?)` 直接寫入上述
+`@Volatile` 欄位，`null` 代表取消該類型的預警（`checkHealthWarning()` 對應的 `?.let` 就不會執行）。
+沒有「fire-and-forget 送出指令、等裝置 ACK」這種非同步往返，設定即時生效，下一筆 `HealthData`
+就會用新範圍判斷。
+
+`release()` 會清空 `healthWarningListeners`（跟其他 listener 列表一致），但**不會**重置
+`heartRateWarningRange`/`spo2WarningRange`——`BleDeviceManager` 實例通常隨 ViewModel 生命週期
+一起建立/銷毀，重置範圍目前不是必要行為，如未來有「同一個 manager 實例跨裝置重用」的情境，
+需重新評估這個決定。
 
 ---
 
@@ -760,6 +808,5 @@ reconnectAttempt = 0     // 重置計數
 | 幀重組錯誤處理 | 校驗碼或包尾不符時僅捨棄 1 byte 嘗試重新同步，無記錄/告警機制 | 可加入損壞幀計數與日誌，利於現場除錯與訊號品質評估 |
 | 封包連續性 | `packetId` 已隨 IMU/PPG/ECG/GSR 資料回報，但呼叫端需自行比對是否跳號 | 可在 DeviceModule 內建跳號偵測與告警，減少每個呼叫端重複實作 |
 | PPG/ECG/GSR 物理量換算 | 廠商文件未提供換算公式，維持原始計數值 | 待廠商補充換算公式或現場校正參數後再實作 |
-| 「設置/讀取」類指令無 request/response correlation | `setHeartRateWarning()`/`readHeartRateWarning()` 等為 fire-and-forget，呼叫端無法得知單次呼叫是否成功、對應哪一次回應 | 若未來需要更精確的呼叫語意，可引入以 `CompletableDeferred` 依功能碼/實體碼配對的通用機制，讓 API 改為 `suspend fun ... : Result<...>` 
 
 
