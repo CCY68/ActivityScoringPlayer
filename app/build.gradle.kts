@@ -50,8 +50,8 @@ android {
 
 dependencies {
     implementation(files("libs/device-module.aar"))
-    implementation(files("libs/scoring-module.aar"))
-    // ScoringModule 依賴 maf-format（com.motionmaf.format.*）解析 .maf 課程檔，
+    implementation(files("libs/activity-scoring-core.aar"))
+    // ActivityScoringCore 依賴 maf-format（com.motionmaf.format.*）解析 .maf 課程檔，
     // 但 implementation(files(...)) 這種本機檔案依賴不會帶出任何 transitive 依賴，須另外補上。
     implementation(files("libs/maf-format.jar"))
     implementation(libs.kotlinx.serialization.json)

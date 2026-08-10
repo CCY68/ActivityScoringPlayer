@@ -1,12 +1,12 @@
 package com.johnson.fitness.data
 
 import android.content.Context
-import com.fitness.scoring.api.EngineConfig
-import com.fitness.scoring.engine.ScoringEngine
-import com.fitness.scoring.heart.UserProfile
-import com.fitness.scoring.reference.readMafAssetBytes
+import com.fitness.activityscoringcore.api.EngineConfig
+import com.fitness.activityscoringcore.engine.ScoringEngine
+import com.fitness.activityscoringcore.heart.UserProfile
+import com.fitness.activityscoringcore.reference.readMafAssetBytes
 
-// ScoringModule 已改版：不再有 builder()/ScoringConfig/SettlementAlgorithm，
+// ActivityScoringCore 已改版：不再有 builder()/ScoringConfig/SettlementAlgorithm，
 // 直接建構 ScoringEngine；heartRateProfile 才能啟用心率安全管線（見 UserProfile）。
 class ScoringEngineFactory(
     private val context: Context

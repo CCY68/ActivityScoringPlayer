@@ -27,7 +27,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.johnson.fitness.ui.theme.JohnsonColors
 
-// 原本的「評分演算法」設定（SettlementAlgorithm）已隨 ScoringModule 改版整個移除
+// 原本的「評分演算法」設定（SettlementAlgorithm）已隨 ActivityScoringCore 改版整個移除
 // （新版三個評分面向各自獨立輸出，沒有可切換的結算演算法），故此畫面不再需要 ViewModel/狀態，
 // 純粹是靜態的設定入口列表。
 @Composable

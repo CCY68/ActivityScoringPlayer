@@ -3,9 +3,9 @@ package com.johnson.fitness.ui.playback
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitness.device.api.IDeviceManager
-import com.fitness.scoring.api.Availability
-import com.fitness.scoring.api.Score
-import com.fitness.scoring.engine.ScoringEngine
+import com.fitness.activityscoringcore.api.Availability
+import com.fitness.activityscoringcore.api.Score
+import com.fitness.activityscoringcore.engine.ScoringEngine
 import com.motionmaf.format.MafLoadResult
 import com.johnson.fitness.data.MovieRepository
 import com.johnson.fitness.data.ScoringEngineFactory
@@ -49,7 +49,7 @@ class PlaybackViewModel(
 
     private var feedbackDismissJob: Job? = null
 
-    // ScoringModule 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
+    // ActivityScoringCore 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
     // 是這裡自行累積三個面向的平均值，非 ScoringEngine 提供。
     private class Accumulator {
         private var sum = 0.0

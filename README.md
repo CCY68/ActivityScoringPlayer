@@ -9,7 +9,7 @@ Google TV 播放示範 App，內含 **Module A · 手環連線管理（DeviceMod
 ## 文件
 
 - [`DeviceModule-Internal.md`](./DeviceModule-Internal.md) — DeviceModule 內部實作原理
-- [`ScoringModule-Integration.md`](./ScoringModule-Integration.md) — `maf-format.jar` 來源與 `.maf` 課程檔使用方法
+- [`ActivityScoringCore-Integration.md`](./ActivityScoringCore-Integration.md) — `maf-format.jar` 來源與 `.maf` 課程檔使用方法
 - [`PROJECT.md`](./PROJECT.md) — 本元件定位與注意事項
 - [`AGENTS.md`](./AGENTS.md) — AI 協作守則
 - [`../PROJECT.md`](../PROJECT.md) — 工作區全貌與跨元件契約

@@ -28,7 +28,7 @@
 
 ## 系統全貌
 
-DeviceModule 解決的核心問題：**透過 BLE（Bluetooth Low Energy）與健身手環通訊，將感測器原始訊號轉換為結構化資料，提供給 ScoringModule 評分或 UI 直接顯示。**
+DeviceModule 解決的核心問題：**透過 BLE（Bluetooth Low Energy）與健身手環通訊，將感測器原始訊號轉換為結構化資料，提供給 ActivityScoringCore 評分或 UI 直接顯示。**
 
 挑戰有四個：
 
@@ -777,8 +777,8 @@ reconnectAttempt = 0     // 重置計數
 ### 3. 不在 DeviceModule 內做訊號濾波
 
 **決策**：IMU 原始值（含重力、高頻雜訊）直接轉發，不在 DeviceModule 內過濾。  
-**理由**：訊號處理屬於評分邏輯範疇，由 ScoringModule 的 `MotionFilter`（IIR 低通）負責。DeviceModule 只負責傳輸，確保單一職責。  
-**代價**：呼叫端若不搭配 ScoringModule，直接使用原始 IMU 資料時需自行過濾。
+**理由**：訊號處理屬於評分邏輯範疇，由 ActivityScoringCore 的 `MotionFilter`（IIR 低通）負責。DeviceModule 只負責傳輸，確保單一職責。  
+**代價**：呼叫端若不搭配 ActivityScoringCore，直接使用原始 IMU 資料時需自行過濾。
 
 ### 4. 指數退避上限 30 秒
 

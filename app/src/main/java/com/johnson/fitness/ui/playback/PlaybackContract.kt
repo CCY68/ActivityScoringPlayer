@@ -14,7 +14,7 @@ data class PlaybackState(
     val grade: String = "",
     val finalScore: Int? = null,
     // 三個評分面向（節奏/軌跡/片段相似度）各自的課程平均分數，key = 顯示標籤；
-    // ScoringModule 已不提供聚合總分/多演算法比較（ADR 0011），此處為 App 端自行計算的平均值
+    // ActivityScoringCore 已不提供聚合總分/多演算法比較（ADR 0011），此處為 App 端自行計算的平均值
     val aspectScores: Map<String, Int> = emptyMap(),
     val alertMessage: String? = null,
     // 窗口反饋文字（"動作標準！"）

@@ -5,8 +5,8 @@ import com.fitness.device.api.IHealthDataListener
 import com.fitness.device.api.IImuDataListener
 import com.fitness.device.model.HealthData
 import com.fitness.device.model.ImuData
-import com.fitness.scoring.api.IMotionDataProvider
-import com.fitness.scoring.signal.RawImuSample
+import com.fitness.activityscoringcore.api.IMotionDataProvider
+import com.fitness.activityscoringcore.signal.RawImuSample
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow

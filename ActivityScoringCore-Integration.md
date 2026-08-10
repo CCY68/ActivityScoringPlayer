@@ -2,13 +2,13 @@
 
 本文件說明 `app/libs/maf-format.jar` 從哪來、App 目前怎麼用它，以及如果你手上有一份 `.maf` 檔要怎麼載入測試。
 
-> 完整的 MAF JSON schema 定義、加密/簽章規劃（ADR 0019）等規格文件，在另一個 repo `ActivityScoringCore` 的 `ScoringModule-SDK.md`，本文件只記錄「這個 Player repo 怎麼用它」。
+> 完整的 MAF JSON schema 定義、加密/簽章規劃（ADR 0019）等規格文件，在另一個 repo `ActivityScoringCore` 的 `ActivityScoringCore-SDK.md`，本文件只記錄「這個 Player repo 怎麼用它」。
 
 ## 1. `maf-format.jar` 是什麼
 
 - 不是第三方套件，是 `ActivityScoringCore/maf-format` 這個 Kotlin/JVM 模組（package `com.motionmaf.format`）build 出來的產物，手動複製到 `app/libs/maf-format.jar`。
 - 用途：解析、驗證 **MAF（Motion Assessment Format）** 格式的 `.maf` 課程檔——動作評分課程用的參考資料（分段時間軸、軌跡參考、節奏參考、片段相似度參考等）。
-- App 為什麼要單獨依賴它：`scoring-module.aar` 內部會呼叫 `maf-format` 解析 `.maf` 檔，但 `implementation(files(...))` 這種本機檔案依賴不會帶出 transitive 依賴，所以 `app/build.gradle.kts` 額外補上這行（見該檔案第 54–56 行的註解）。
+- App 為什麼要單獨依賴它：`activity-scoring-core.aar` 內部會呼叫 `maf-format` 解析 `.maf` 檔，但 `implementation(files(...))` 這種本機檔案依賴不會帶出 transitive 依賴，所以 `app/build.gradle.kts` 額外補上這行（見該檔案第 54–56 行的註解）。
 
 ### 更新這個 jar
 
@@ -22,12 +22,12 @@ cp maf-format/build/libs/maf-format.jar ../ActivityScoringPlayer/app/libs/maf-fo
 
 ## 2. App 目前怎麼用它（實際呼叫路徑）
 
-App **不會直接**呼叫 `MafLoader`，是透過 `scoring-module.aar` 提供的 `ScoringEngine.loadMaf(...)` 間接使用：
+App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` 提供的 `ScoringEngine.loadMaf(...)` 間接使用：
 
 ```
 PlaybackViewModel (app)
   → ScoringEngineFactory.readMafBytes(movieId)          // 讀 assets: motions/$movieId.maf
-  → ScoringEngine.loadMaf(bytes)                        // scoring-module，內部呼叫 MafLoader
+  → ScoringEngine.loadMaf(bytes)                        // activity-scoring-core，內部呼叫 MafLoader
   → MafLoader.load(...)                                 // maf-format，本文件的主角
 ```
 
@@ -35,8 +35,8 @@ PlaybackViewModel (app)
 
 - `app/src/main/java/com/johnson/fitness/ui/playback/PlaybackViewModel.kt` — 呼叫端，判斷 `state.isScoring`
 - `app/src/main/java/com/johnson/fitness/data/ScoringEngineFactory.kt` — 讀 assets bytes
-- `ActivityScoringCore/scoring-module/src/main/java/com/fitness/scoring/reference/MafAssets.kt` — `Context.readMafAssetBytes(assetPath)`，唯一允許碰 `Context` 的地方
-- `ActivityScoringCore/scoring-module/src/main/java/com/fitness/scoring/engine/ScoringEngine.kt` — `loadMaf(...)`，內部即 `MafLoader(decryptor).load(...)`
+- `ActivityScoringCore/activity-scoring-core/src/main/java/com/fitness/activityscoringcore/reference/MafAssets.kt` — `Context.readMafAssetBytes(assetPath)`，唯一允許碰 `Context` 的地方
+- `ActivityScoringCore/activity-scoring-core/src/main/java/com/fitness/activityscoringcore/engine/ScoringEngine.kt` — `loadMaf(...)`，內部即 `MafLoader(decryptor).load(...)`
 
 ### `.maf` 檔案放哪裡
 
@@ -99,5 +99,5 @@ fun main() {
 
 ## 4. 延伸閱讀
 
-- `ActivityScoringCore/ScoringModule-SDK.md` — 完整 MAF JSON schema、ProGuard 規則、打包指令（`./gradlew :maf-format:jar`、`./gradlew :scoring-module:assembleRelease`）
+- `ActivityScoringCore/ActivityScoringCore-SDK.md` — 完整 MAF JSON schema、ProGuard 規則、打包指令（`./gradlew :maf-format:jar`、`./gradlew :activity-scoring-core:assembleRelease`）
 - `ActivityScoringCore/maf-format/src/test/kotlin/com/motionmaf/format/TestFixtures.kt` — 用程式碼建構的 MAF fixture 範例（沒有實體 `.maf` 檔可參考時，可以看這裡了解欄位長怎樣）

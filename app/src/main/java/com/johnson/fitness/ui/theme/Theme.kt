@@ -5,7 +5,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 
 @Composable
-fun DemoFitnessTheme(content: @Composable () -> Unit) {
+fun ActivityScoringPlayerTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary    = JohnsonColors.Brand,
