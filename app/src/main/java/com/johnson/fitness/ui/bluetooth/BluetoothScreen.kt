@@ -10,6 +10,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +57,8 @@ import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceType
 import com.fitness.device.model.SignalQuality
+import com.johnson.fitness.ui.common.isCompactWidth
+import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.theme.JohnsonColors
 
 @Composable
@@ -99,6 +103,7 @@ fun BluetoothScreen(
         }
     }
 
+    val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -106,11 +111,23 @@ fun BluetoothScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
 
-            // Header
+            // Header：拆成「標題＋按鈕」「狀態」兩列。標題列用 Spacer(weight(1f)) 把按鈕推到
+            // 右邊，內容量固定（標題＋最多兩顆按鈕），窄螢幕下不容易超寬，不需要捲動。
+            // 狀態列（掃描中／已連線／電量／韌體…）內容筆數會隨當下狀態變動，最多可能同時
+            // 塞好幾段文字，這列沒有用到 weight()，可以安全地包一層橫向捲動防止溢出。
+            val hasStatus = state.isScanning ||
+                state.connectionState is ConnectionState.Connected ||
+                state.connectionState is ConnectionState.Reconnecting
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 56.dp, vertical = 32.dp),
+                    .padding(
+                        start = horizontalPadding,
+                        end = horizontalPadding,
+                        top = 32.dp,
+                        bottom = if (hasStatus) 12.dp else 32.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
@@ -131,83 +148,20 @@ fun BluetoothScreen(
                     )
                 }
 
-                // Scanning indicator
-                if (state.isScanning) {
-                    Spacer(Modifier.width(20.dp))
-                    CircularProgressIndicator(
-                        color = JohnsonColors.Brand,
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "搜尋中…",
-                        color = JohnsonColors.TextTertiary,
-                        fontSize = 14.sp
-                    )
-                }
-
-                // Connected status
-                when (val cs = state.connectionState) {
-                    is ConnectionState.Connected -> {
-                        Spacer(Modifier.width(16.dp))
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(JohnsonColors.AccentScore, CircleShape)
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "已連線：${cs.device.name ?: "裝置"}",
-                            color = JohnsonColors.AccentScore,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                        state.batteryLevel?.let { pct ->
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = "電量 $pct%",
-                                color = JohnsonColors.AccentScore,
-                                fontSize = 13.sp
-                            )
-                        }
-                        if (cs.device.brand == DeviceBrand.B20) {
-                            Spacer(Modifier.width(10.dp))
-                            Text(
-                                text = state.b20DeviceInfo?.let { "韌體 ${it.version ?: "-"}" } ?: "讀取韌體資訊中…",
-                                color = JohnsonColors.TextTertiary,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                    is ConnectionState.Reconnecting -> {
-                        Spacer(Modifier.width(16.dp))
-                        CircularProgressIndicator(
-                            color = JohnsonColors.Amber500,
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            text = "重連中（${cs.attempt}/${cs.maxAttempts}）",
-                            color = JohnsonColors.Amber500,
-                            fontSize = 14.sp
-                        )
-                    }
-                    else -> {}
-                }
-
                 Spacer(Modifier.weight(1f))
 
                 if (state.connectionState is ConnectionState.Connected) {
-                    Button(onClick = { viewModel.onIntent(BluetoothIntent.Disconnect) }) {
+                    val onDisconnect = { viewModel.onIntent(BluetoothIntent.Disconnect) }
+                    Button(onClick = onDisconnect, modifier = Modifier.touchClickable(onClick = onDisconnect)) {
                         Text("斷開連線")
                     }
                     Spacer(Modifier.width(12.dp))
                 }
+                val onStartScan = { viewModel.onIntent(BluetoothIntent.StartScan) }
                 Button(
-                    onClick = { viewModel.onIntent(BluetoothIntent.StartScan) },
-                    enabled = !state.isScanning
+                    onClick = onStartScan,
+                    enabled = !state.isScanning,
+                    modifier = Modifier.touchClickable(enabled = !state.isScanning, onClick = onStartScan)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Refresh,
@@ -219,11 +173,87 @@ fun BluetoothScreen(
                 }
             }
 
+            if (hasStatus) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = horizontalPadding)
+                        .padding(bottom = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Scanning indicator
+                    if (state.isScanning) {
+                        CircularProgressIndicator(
+                            color = JohnsonColors.Brand,
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "搜尋中…",
+                            color = JohnsonColors.TextTertiary,
+                            fontSize = 14.sp
+                        )
+                    }
+
+                    // Connected status
+                    when (val cs = state.connectionState) {
+                        is ConnectionState.Connected -> {
+                            if (state.isScanning) Spacer(Modifier.width(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .background(JohnsonColors.AccentScore, CircleShape)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "已連線：${cs.device.name ?: "裝置"}",
+                                color = JohnsonColors.AccentScore,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                            state.batteryLevel?.let { pct ->
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = "電量 $pct%",
+                                    color = JohnsonColors.AccentScore,
+                                    fontSize = 13.sp
+                                )
+                            }
+                            if (cs.device.brand == DeviceBrand.B20) {
+                                Spacer(Modifier.width(10.dp))
+                                Text(
+                                    text = state.b20DeviceInfo?.let { "韌體 ${it.version ?: "-"}" } ?: "讀取韌體資訊中…",
+                                    color = JohnsonColors.TextTertiary,
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                        is ConnectionState.Reconnecting -> {
+                            if (state.isScanning) Spacer(Modifier.width(16.dp))
+                            CircularProgressIndicator(
+                                color = JohnsonColors.Amber500,
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = "重連中（${cs.attempt}/${cs.maxAttempts}）",
+                                color = JohnsonColors.Amber500,
+                                fontSize = 14.sp
+                            )
+                        }
+                        else -> {}
+                    }
+                }
+            }
+
             // Divider
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 56.dp)
+                    .padding(horizontal = horizontalPadding)
                     .height(1.dp)
                     .background(JohnsonColors.BorderSubtle)
             )
@@ -233,7 +263,7 @@ fun BluetoothScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 56.dp)
+                    .padding(horizontal = horizontalPadding)
             ) {
                 when {
                     state.bluetoothDisabled -> EmptyHint("請先開啟藍牙")
@@ -289,14 +319,17 @@ private fun DeviceItem(
         else -> JohnsonColors.BorderSubtle
     }
 
+    val onCardClick = {
+        when {
+            isConnected -> onDisconnect()
+            !isConnecting && !isReconnecting -> onConnect()
+        }
+    }
     Card(
-        onClick = {
-            when {
-                isConnected -> onDisconnect()
-                !isConnecting && !isReconnecting -> onConnect()
-            }
-        },
-        modifier = Modifier.fillMaxWidth()
+        onClick = onCardClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .touchClickable(onClick = onCardClick)
     ) {
         Row(
             modifier = Modifier

@@ -12,6 +12,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,14 +32,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -58,7 +66,10 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.johnson.fitness.FitnessApp
 import com.johnson.fitness.model.Movie
+import com.johnson.fitness.ui.common.isCompactWidth
+import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.theme.JohnsonColors
+import androidx.compose.foundation.layout.widthIn
 import kotlinx.coroutines.delay
 import java.text.NumberFormat
 import androidx.compose.ui.tooling.preview.Preview
@@ -126,11 +137,14 @@ fun PlaybackScreen(
         )
 
         // 2. Right-side dark gradient → keeps right panel readable
+        // 400dp 是照 HUD 面板（284dp）+ 邊界留白抓的 TV 尺度，手機窄螢幕下這個寬度
+        // 可能就等於整個畫面寬，縮小成跟 HUD 面板同一套響應式邏輯搭配。
         Box(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .width(400.dp)
+                .fillMaxWidth(0.62f)
+                .widthIn(min = 180.dp, max = 400.dp)
                 .background(
                     Brush.horizontalGradient(
                         listOf(Color.Transparent, JohnsonColors.Ink1000.copy(alpha = 0.92f))
@@ -151,11 +165,13 @@ fun PlaybackScreen(
                 )
         )
 
+        val horizontalPadding = if (isCompactWidth()) 20.dp else 40.dp
+
         // 4. Top bar: LIVE + COACH badge / Title (left) + Timer + X (right)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 40.dp, vertical = 24.dp),
+                .padding(horizontal = horizontalPadding, vertical = 24.dp),
             verticalAlignment = Alignment.Top
         ) {
             Column {
@@ -197,7 +213,7 @@ fun PlaybackScreen(
             exit  = fadeOut() + slideOutVertically { -32 },
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .padding(start = 40.dp, bottom = 60.dp)
+                .padding(start = horizontalPadding, bottom = 60.dp)
         ) {
             state.feedbackLabel?.let { label ->
                 FeedbackToast(label = label, delta = state.feedbackDelta ?: "")
@@ -206,11 +222,14 @@ fun PlaybackScreen(
 
         // 6. Right HUD panel (3 cards, visible while scoring)
         if (state.isScoring) {
+            // 固定 284dp 在手機窄螢幕上會占掉大半個畫面（284/380 ≈ 75%），
+            // 改成比例＋上下限：TV/平板維持原本 284dp 觀感，手機依螢幕寬度等比縮小。
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 20.dp, end = 32.dp)
-                    .width(284.dp),
+                    .padding(top = 20.dp, end = if (isCompactWidth()) 16.dp else 32.dp)
+                    .fillMaxWidth(0.56f)
+                    .widthIn(min = 170.dp, max = 284.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 ScoreCard(gameScore = state.gameScore, combo = state.combo)
@@ -231,10 +250,13 @@ fun PlaybackScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 40.dp, vertical = 14.dp),
+                    .padding(horizontal = horizontalPadding, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PauseIcon()
+                PlayPauseButton(
+                    isPlaying = state.isPlaying,
+                    onToggle = { exoPlayer.playWhenReady = !exoPlayer.playWhenReady }
+                )
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text(
@@ -252,10 +274,14 @@ fun PlaybackScreen(
                     )
                 }
             }
-            // Thin progress bar
+            // Thin progress bar（可拖曳 seek）
             VideoProgressBar(
                 positionMs = state.videoPositionMs,
-                durationMs = state.videoDurationMs
+                durationMs = state.videoDurationMs,
+                onSeek = { newPositionMs ->
+                    exoPlayer.seekTo(newPositionMs)
+                    viewModel.onIntent(PlaybackIntent.Seek(newPositionMs))
+                }
             )
         }
 
@@ -352,7 +378,9 @@ private fun CloseButton(onClick: () -> Unit) {
     Button(
         onClick = onClick,
         shape = ButtonDefaults.shape(shape = CircleShape),
-        modifier = Modifier.size(40.dp),
+        modifier = Modifier
+            .size(40.dp)
+            .touchClickable(onClick = onClick),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
     ) {
         Text("✕", color = JohnsonColors.TextPrimary, fontSize = 15.sp)
@@ -576,7 +604,9 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = onStop,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .touchClickable(onClick = onStop),
                     colors = ButtonDefaults.colors(
                         containerColor        = JohnsonColors.AccentScore,
                         contentColor          = JohnsonColors.Ink900,
@@ -597,43 +627,85 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
 
 // ─── Bottom bar ───────────────────────────────────────────────────────────────
 
+// 手機沒有遙控器媒體鍵，這顆按鈕本來只是裝飾用的暫停圖示（TV 上也沒接任何按鍵），
+// 現在改成真的可以切換播放/暫停，並依播放狀態切換圖示（沿用 tv-material Button
+// 才能同時保留 D-pad Enter 跟 touchClickable 的觸控 tap 兩種輸入）。
 @Composable
-private fun PauseIcon() {
-    Box(
+private fun PlayPauseButton(isPlaying: Boolean, onToggle: () -> Unit) {
+    Button(
+        onClick = onToggle,
+        shape = ButtonDefaults.shape(shape = CircleShape),
         modifier = Modifier
             .size(48.dp)
-            .clip(CircleShape)
-            .background(JohnsonColors.SurfaceGlass)
-            .border(1.dp, JohnsonColors.BorderDefault, CircleShape),
-        contentAlignment = Alignment.Center
+            .touchClickable(onClick = onToggle),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            repeat(2) {
-                Box(
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(14.dp)
-                        .background(JohnsonColors.Gray50, RoundedCornerShape(1.5.dp))
-                )
+        if (isPlaying) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                repeat(2) {
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .height(14.dp)
+                            .background(JohnsonColors.Gray50, RoundedCornerShape(1.5.dp))
+                    )
+                }
+            }
+        } else {
+            Canvas(modifier = Modifier.size(16.dp)) {
+                val triangle = Path().apply {
+                    moveTo(0f, 0f)
+                    lineTo(size.width, size.height / 2f)
+                    lineTo(0f, size.height)
+                    close()
+                }
+                drawPath(triangle, color = JohnsonColors.Gray50)
             }
         }
     }
 }
 
+// 可拖曳 seek 的進度條：視覺上維持原本 3dp 細線，但外層包一個 24dp 高的觸控熱區，
+// 手指點/拖到哪就直接呼叫 onSeek 換算後的 positionMs（drag() 沒有 touch slop，
+// 一按下去就會立刻反應，符合一般播放器進度條的拖曳手感）。
 @Composable
-private fun VideoProgressBar(positionMs: Long, durationMs: Long) {
+private fun VideoProgressBar(positionMs: Long, durationMs: Long, onSeek: (Long) -> Unit) {
     val progress = if (durationMs > 0)
         (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+    var barWidthPx by remember { mutableStateOf(0f) }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(3.dp)
-            .background(JohnsonColors.Ink500)
+            .height(24.dp)
+            .onSizeChanged { barWidthPx = it.width.toFloat() }
+            .pointerInput(durationMs) {
+                if (durationMs <= 0) return@pointerInput
+                fun seekTo(x: Float) {
+                    if (barWidthPx <= 0f) return
+                    onSeek(((x / barWidthPx).coerceIn(0f, 1f) * durationMs).toLong())
+                }
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    seekTo(down.position.x)
+                    drag(down.id) { change ->
+                        change.consume()
+                        seekTo(change.position.x)
+                    }
+                }
+            },
+        contentAlignment = Alignment.CenterStart
     ) {
         Box(
             modifier = Modifier
-                .fillMaxHeight()
+                .fillMaxWidth()
+                .height(3.dp)
+                .background(JohnsonColors.Ink500)
+        )
+        Box(
+            modifier = Modifier
                 .fillMaxWidth(progress)
+                .height(3.dp)
                 .background(JohnsonColors.Brand)
         )
     }
@@ -659,7 +731,7 @@ private fun AlertBanner(message: String, onDismiss: () -> Unit) {
         Spacer(Modifier.height(4.dp))
         Text(text = message, color = JohnsonColors.Gray0, fontSize = 13.sp)
         Spacer(Modifier.height(12.dp))
-        Button(onClick = onDismiss) {
+        Button(onClick = onDismiss, modifier = Modifier.touchClickable(onClick = onDismiss)) {
             Text("知道了", color = JohnsonColors.Gray0)
         }
     }
@@ -674,13 +746,16 @@ private fun FinalScoreCard(
     aspectScores: Map<String, Int>,
     onBack: () -> Unit
 ) {
+    // 固定 420dp 在手機直向/窄螢幕下可能比螢幕還寬；改成「撐滿可用寬度的 92%，但最多 420dp」，
+    // TV/平板維持原本 420dp 觀感，手機自動收斂到螢幕寬度以內並留一點邊距。
     Column(
         modifier = Modifier
-            .width(420.dp)
+            .fillMaxWidth(0.92f)
+            .widthIn(max = 420.dp)
             .clip(RoundedCornerShape(28.dp))
             .background(JohnsonColors.SurfaceCard)
             .border(1.dp, JohnsonColors.BorderDefault, RoundedCornerShape(28.dp))
-            .padding(36.dp),
+            .padding(if (isCompactWidth()) 24.dp else 36.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(
@@ -760,7 +835,9 @@ private fun FinalScoreCard(
         Spacer(Modifier.height(8.dp))
         Button(
             onClick  = onBack,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .touchClickable(onClick = onBack)
         ) {
             Text("返回首頁", fontWeight = FontWeight.SemiBold)
         }
@@ -901,14 +978,14 @@ private fun PlaybackScoringPreview() {
                     .padding(horizontal = 40.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                PauseIcon()
+                PlayPauseButton(isPlaying = true, onToggle = {})
                 Spacer(Modifier.width(16.dp))
                 Column {
                     Text("目前動作", color = JohnsonColors.TextTertiary, fontSize = 11.sp)
                     Text("深蹲跳 ×15", color = JohnsonColors.TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-            VideoProgressBar(positionMs = 50_000L, durationMs = 1_800_000L)
+            VideoProgressBar(positionMs = 50_000L, durationMs = 1_800_000L, onSeek = {})
         }
     }
 }

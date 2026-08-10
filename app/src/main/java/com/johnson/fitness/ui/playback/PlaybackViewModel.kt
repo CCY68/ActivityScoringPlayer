@@ -68,7 +68,10 @@ class PlaybackViewModel(
     private val trajectoryAcc = Accumulator()
     private val segmentSimilarityAcc = Accumulator()
 
-    private var wasImuConnected = true
+    // ScoringEngine 的 heartRate StateFlow 初始值就是 imuConnected = false（DeviceConnectivityWatchdog
+    // 把「從沒收過樣本」也視為斷線），一進入播放頁、還沒收到裝置第一筆資料前就會先發出這個狀態。
+    // 這裡要是預設 true，會把「還沒連上」誤判成「連線後斷線」，一進畫面就跳出斷線警告。
+    private var wasImuConnected = false
 
     init {
         viewModelScope.launch {
@@ -171,7 +174,8 @@ class PlaybackViewModel(
                 _state.update {
                     it.copy(
                         videoPositionMs = intent.positionMs,
-                        videoDurationMs = intent.durationMs.takeIf { it > 0 } ?: it.videoDurationMs
+                        videoDurationMs = intent.durationMs.takeIf { it > 0 } ?: it.videoDurationMs,
+                        isPlaying = intent.isPlaying
                     )
                 }
 
@@ -213,6 +217,15 @@ class PlaybackViewModel(
             }
             is PlaybackIntent.BackPressed -> {
                 viewModelScope.launch { _effect.send(PlaybackEffect.NavigateBack) }
+            }
+            is PlaybackIntent.Seek -> {
+                videoPositionMs = intent.positionMs
+                _state.update { it.copy(videoPositionMs = intent.positionMs) }
+                // 只有已經建立過換算基準（影片已開始播放過）才需要重新校正；
+                // 還沒開始播放就不會有這個 offset，維持 null 讓它在真正開始播放時正常建立。
+                videoTimeOffsetMs?.let {
+                    videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
+                }
             }
         }
     }

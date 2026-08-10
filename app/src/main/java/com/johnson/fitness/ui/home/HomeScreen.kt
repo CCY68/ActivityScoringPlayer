@@ -49,6 +49,8 @@ import androidx.tv.material3.Text
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.johnson.fitness.model.Movie
+import com.johnson.fitness.ui.common.isCompactWidth
+import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.theme.JohnsonColors
 
 @Composable
@@ -129,9 +131,16 @@ fun HomeScreen(
 
 @Composable
 private fun NavRail(onSettingsClick: () -> Unit) {
+    // 104dp 寬的側邊導覽欄是照 TV 10-foot 畫面的比例設計的；手機螢幕窄很多，同樣寬度會佔掉
+    // 過高比例的畫面，這裡窄螢幕時縮小欄寬、圖示與間距，而不是整個拿掉（維持左側常駐導覽的結構）。
+    val compact = isCompactWidth()
+    val railWidth = if (compact) 68.dp else 104.dp
+    val logoSize = if (compact) 36.dp else 42.dp
+    val verticalPadding = if (compact) 16.dp else 28.dp
+
     Column(
         modifier = Modifier
-            .width(104.dp)
+            .width(railWidth)
             .fillMaxHeight()
             .background(JohnsonColors.SurfaceBase)
             .border(
@@ -139,13 +148,13 @@ private fun NavRail(onSettingsClick: () -> Unit) {
                 color = JohnsonColors.BorderSubtle,
                 shape = RoundedCornerShape(0.dp)
             )
-            .padding(vertical = 28.dp),
+            .padding(vertical = verticalPadding),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Logo mark
         Box(
             modifier = Modifier
-                .size(42.dp)
+                .size(logoSize)
                 .background(JohnsonColors.Brand, RoundedCornerShape(10.dp)),
             contentAlignment = Alignment.Center
         ) {
@@ -157,18 +166,20 @@ private fun NavRail(onSettingsClick: () -> Unit) {
             )
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(if (compact) 16.dp else 28.dp))
 
-        NavItem(label = "首頁", isActive = true)
-        NavItem(label = "探索")
-        NavItem(label = "數據")
+        NavItem(label = "首頁", isActive = true, compact = compact)
+        NavItem(label = "探索", compact = compact)
+        NavItem(label = "數據", compact = compact)
 
         Spacer(Modifier.weight(1f))
 
         // Settings at bottom
         Card(
             onClick = onSettingsClick,
-            modifier = Modifier.size(52.dp)
+            modifier = Modifier
+                .size(if (compact) 44.dp else 52.dp)
+                .touchClickable(onClick = onSettingsClick)
         ) {
             Box(
                 contentAlignment = Alignment.Center,
@@ -188,11 +199,11 @@ private fun NavRail(onSettingsClick: () -> Unit) {
 }
 
 @Composable
-private fun NavItem(label: String, isActive: Boolean = false) {
+private fun NavItem(label: String, isActive: Boolean = false, compact: Boolean = false) {
     Box(
         modifier = Modifier
-            .width(72.dp)
-            .height(56.dp)
+            .width(if (compact) 56.dp else 72.dp)
+            .height(if (compact) 44.dp else 56.dp)
             .clip(RoundedCornerShape(14.dp))
             .background(if (isActive) JohnsonColors.BrandTint else Color.Transparent),
         contentAlignment = Alignment.Center
@@ -200,7 +211,7 @@ private fun NavItem(label: String, isActive: Boolean = false) {
         Text(
             text = label,
             color = if (isActive) JohnsonColors.Brand else JohnsonColors.TextTertiary,
-            fontSize = 12.sp,
+            fontSize = if (compact) 10.sp else 12.sp,
             fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
         )
     }
@@ -208,10 +219,11 @@ private fun NavItem(label: String, isActive: Boolean = false) {
 
 @Composable
 private fun TopBar() {
+    val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 56.dp, end = 56.dp, top = 40.dp, bottom = 28.dp),
+            .padding(start = horizontalPadding, end = horizontalPadding, top = 40.dp, bottom = 28.dp),
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -227,7 +239,7 @@ private fun TopBar() {
             Text(
                 text = "今天，動起來",
                 color = JohnsonColors.TextPrimary,
-                fontSize = 36.sp,
+                fontSize = if (isCompactWidth()) 26.sp else 36.sp,
                 fontWeight = FontWeight.Black,
                 letterSpacing = (-0.5).sp
             )
@@ -241,11 +253,12 @@ private fun CategoryRail(
     onMovieFocused: (Movie) -> Unit,
     onMovieClicked: (Movie) -> Unit
 ) {
+    val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Column(modifier = Modifier.padding(bottom = 28.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 56.dp, end = 56.dp, bottom = 14.dp),
+                .padding(start = horizontalPadding, end = horizontalPadding, bottom = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -263,7 +276,7 @@ private fun CategoryRail(
             )
         }
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 56.dp),
+            contentPadding = PaddingValues(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(18.dp)
         ) {
             items(category.movies) { movie ->
@@ -279,11 +292,13 @@ private fun CategoryRail(
 
 @Composable
 private fun ClassCard(movie: Movie, onFocused: () -> Unit, onClick: () -> Unit) {
+    val compact = isCompactWidth()
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(256.dp)
-            .height(152.dp)
+            .width(if (compact) 184.dp else 256.dp)
+            .height(if (compact) 110.dp else 152.dp)
+            .touchClickable(onClick = onClick)
             .onFocusChanged { if (it.isFocused) onFocused() }
     ) {
         Box(
@@ -342,17 +357,18 @@ private fun PreferencesRail(
     onErrorClick: () -> Unit,
     onPreferenceClick: (String) -> Unit
 ) {
+    val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Column(modifier = Modifier.padding(bottom = 16.dp)) {
         Text(
             text = "PREFERENCES",
-            modifier = Modifier.padding(start = 56.dp, bottom = 14.dp),
+            modifier = Modifier.padding(start = horizontalPadding, bottom = 14.dp),
             color = JohnsonColors.TextTertiary,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold,
             letterSpacing = 0.14.sp
         )
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 56.dp),
+            contentPadding = PaddingValues(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item { UtilCard(label = "Grid View", onClick = { onPreferenceClick("Grid View") }) }
@@ -364,11 +380,13 @@ private fun PreferencesRail(
 
 @Composable
 private fun UtilCard(label: String, onClick: () -> Unit) {
+    val compact = isCompactWidth()
     Card(
         onClick = onClick,
         modifier = Modifier
-            .width(180.dp)
-            .height(72.dp)
+            .width(if (compact) 148.dp else 180.dp)
+            .height(if (compact) 64.dp else 72.dp)
+            .touchClickable(onClick = onClick)
     ) {
         Box(
             contentAlignment = Alignment.Center,

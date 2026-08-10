@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.johnson.fitness.ui.common.touchClickable
 import kotlinx.coroutines.delay
 
 @Composable
@@ -45,7 +46,7 @@ fun ErrorScreen(onDismiss: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(text = "An error occurred", fontSize = 24.sp, color = Color.White)
-                Button(onClick = onDismiss) { Text("Dismiss") }
+                Button(onClick = onDismiss, modifier = Modifier.touchClickable(onClick = onDismiss)) { Text("Dismiss") }
             }
         } else {
             CircularProgressIndicator(color = Color.White)

@@ -10,6 +10,7 @@ import com.fitness.device.api.IPpgDataListener
 import com.fitness.device.api.IScanListener
 import com.fitness.device.model.B20DeviceInfo
 import com.fitness.device.model.ConnectionState
+import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceInfo
 import com.fitness.device.model.PpgData
 import kotlinx.coroutines.channels.Channel
@@ -50,7 +51,7 @@ class BluetoothViewModel(
         deviceManager.addDeviceInfoListener(deviceInfoListener)
         viewModelScope.launch {
             deviceManager.discoveredDevices.collect { devices ->
-                _state.value = _state.value.copy(devices = devices.map { it.toBtDevice() })
+                _state.value = _state.value.copy(devices = devices.filter { it.brand == DeviceBrand.B20 }.map { it.toBtDevice() })
             }
         }
         viewModelScope.launch {
@@ -127,9 +128,12 @@ class BluetoothViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        // deviceManager 是掛在 FitnessApp 的整個 App 共用單例（PlaybackViewModel 也靠它讀心率/IMU），
+        // 不是這個 ViewModel 專屬的資源，離開這個畫面時只能收掉自己註冊的 listener，
+        // 不能呼叫 release()——那會把底層藍牙連線斷掉、internal coroutine scope 也整個取消掉，
+        // 導致離開配對頁之後裝置斷線、且之後永遠無法再重新掃描/連線（這正是先前回報的斷線問題）。
         deviceManager.removePpgDataListener(ppgListener)
         deviceManager.removeDeviceInfoListener(deviceInfoListener)
-        deviceManager.release()
     }
 
     private fun DeviceInfo.toBtDevice() = BtDevice(

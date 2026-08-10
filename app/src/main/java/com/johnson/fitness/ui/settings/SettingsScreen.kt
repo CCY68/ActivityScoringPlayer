@@ -25,6 +25,8 @@ import androidx.compose.ui.unit.sp
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.johnson.fitness.ui.common.isCompactWidth
+import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.theme.JohnsonColors
 
 // 原本的「評分演算法」設定（SettlementAlgorithm）已隨 ActivityScoringCore 改版整個移除
@@ -35,6 +37,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onBluetoothClick: () -> Unit,
 ) {
+    val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -46,7 +49,7 @@ fun SettingsScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 56.dp, vertical = 32.dp),
+                    .padding(horizontal = horizontalPadding, vertical = 32.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
@@ -67,21 +70,21 @@ fun SettingsScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                Button(onClick = onBack) { Text("返回") }
+                Button(onClick = onBack, modifier = Modifier.touchClickable(onClick = onBack)) { Text("返回") }
             }
 
             // Divider
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 56.dp)
+                    .padding(horizontal = horizontalPadding)
                     .height(1.dp)
                     .background(JohnsonColors.BorderSubtle)
             )
             Spacer(Modifier.height(32.dp))
 
             Column(
-                modifier = Modifier.padding(horizontal = 56.dp),
+                modifier = Modifier.padding(horizontal = horizontalPadding),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Section: 裝置
@@ -135,6 +138,6 @@ private fun SettingLinkRow(title: String, description: String, onClick: () -> Un
             )
         }
         Spacer(Modifier.width(24.dp))
-        Button(onClick = onClick) { Text("前往") }
+        Button(onClick = onClick, modifier = Modifier.touchClickable(onClick = onClick)) { Text("前往") }
     }
 }

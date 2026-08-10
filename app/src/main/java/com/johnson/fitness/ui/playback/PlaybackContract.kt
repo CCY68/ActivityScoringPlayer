@@ -22,6 +22,7 @@ data class PlaybackState(
     val feedbackDelta: String? = null,
     val videoPositionMs: Long = 0L,
     val videoDurationMs: Long = 0L,
+    val isPlaying: Boolean = true,
 )
 
 sealed class PlaybackIntent {
@@ -33,6 +34,10 @@ sealed class PlaybackIntent {
     ) : PlaybackIntent()
     object DismissAlert : PlaybackIntent()
     object StopScoring : PlaybackIntent()
+    // 手機沒有遙控器，播放列的進度條要能手動拖曳 seek；
+    // 這裡同時把評分引擎的「裝置時間 -> 影片時間」換算基準重新校正，
+    // 否則 seek 之後 IMU/心率樣本仍會照舊 offset 換算，對到錯誤的影片時間點。
+    data class Seek(val positionMs: Long) : PlaybackIntent()
 }
 
 sealed class PlaybackEffect {
