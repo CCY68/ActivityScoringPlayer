@@ -12,6 +12,7 @@ import com.fitness.device.model.B20DeviceInfo
 import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceInfo
+import com.fitness.device.model.ImuSampleRate
 import com.fitness.device.model.PpgData
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,9 +78,26 @@ class BluetoothViewModel(
                 deviceManager.disconnect()
                 _state.value = _state.value.copy(
                     b20DeviceInfo = null,
-                    latestPpg = null
+                    latestPpg = null,
+                    imuSampleRateResult = null,
+                    isSettingImuSampleRate = false
                 )
             }
+            is BluetoothIntent.SetImuSampleRate -> setImuSampleRate(intent.rate)
+        }
+    }
+
+    /**
+     * 呼叫 IDeviceManager.setImuSampleRate()：韌體支援時直接設定，不支援（或未確認生效）
+     * 時該方法內部會自動回退軟體端節流，這裡只需要把結果顯示出來即可，不需要自行判斷
+     * 裝置能力。設定過程中（最多約 2 秒，等裝置回報確認）以 isSettingImuSampleRate
+     * 停用畫面上的選項，避免使用者連續點擊觸發多次重疊的設定流程。
+     */
+    private fun setImuSampleRate(rate: ImuSampleRate) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(isSettingImuSampleRate = true)
+            val result = deviceManager.setImuSampleRate(rate)
+            _state.value = _state.value.copy(imuSampleRateResult = result, isSettingImuSampleRate = false)
         }
     }
 

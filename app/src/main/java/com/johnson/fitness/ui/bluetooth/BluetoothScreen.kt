@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -56,6 +57,9 @@ import androidx.tv.material3.Text
 import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceType
+import com.fitness.device.model.ImuSampleRate
+import com.fitness.device.model.ImuSampleRateResult
+import com.fitness.device.model.ImuSampleRateSource
 import com.fitness.device.model.SignalQuality
 import com.johnson.fitness.ui.common.isCompactWidth
 import com.johnson.fitness.ui.common.touchClickable
@@ -249,6 +253,16 @@ fun BluetoothScreen(
                 }
             }
 
+            if (state.connectionState is ConnectionState.Connected) {
+                ImuSampleRateSection(
+                    current = state.imuSampleRateResult,
+                    isBusy = state.isSettingImuSampleRate,
+                    horizontalPadding = horizontalPadding,
+                    onSelect = { rate -> viewModel.onIntent(BluetoothIntent.SetImuSampleRate(rate)) }
+                )
+                Spacer(Modifier.height(20.dp))
+            }
+
             // Divider
             Box(
                 modifier = Modifier
@@ -296,6 +310,94 @@ private fun EmptyHint(text: String) {
             fontSize = 16.sp,
             textAlign = TextAlign.Center
         )
+    }
+}
+
+/**
+ * IMU 取樣頻率設定：25/50/100 Hz 三選一。
+ *
+ * 呼叫 IDeviceManager.setImuSampleRate() 後，韌體支援時直接設定，不支援（或未確認
+ * 生效）時該方法內部會自動回退 App 端軟體節流模擬目標頻率，這裡只需要把結果
+ * （current.source）顯示出來，不需要自行判斷裝置能力。
+ */
+@Composable
+private fun ImuSampleRateSection(
+    current: ImuSampleRateResult?,
+    isBusy: Boolean,
+    horizontalPadding: Dp,
+    onSelect: (ImuSampleRate) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = horizontalPadding)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "IMU 取樣頻率",
+                color = JohnsonColors.TextTertiary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            if (isBusy) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(
+                    color = JohnsonColors.Amber500,
+                    modifier = Modifier.size(14.dp),
+                    strokeWidth = 2.dp
+                )
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ImuSampleRate.entries.forEach { rate ->
+                ImuSampleRateOption(
+                    rate = rate,
+                    isSelected = current?.requestedHz == rate.hz,
+                    enabled = !isBusy,
+                    onClick = { onSelect(rate) }
+                )
+            }
+        }
+        if (current != null) {
+            Spacer(Modifier.height(8.dp))
+            val (text, color) = when (current.source) {
+                ImuSampleRateSource.FIRMWARE -> "✅ 韌體直接設定生效" to JohnsonColors.AccentScore
+                ImuSampleRateSource.SOFTWARE -> "⚠️ 韌體不支援／未確認生效，改由 App 端軟體模擬" to JohnsonColors.TextTertiary
+            }
+            Text(text = text, color = color, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
+private fun ImuSampleRateOption(
+    rate: ImuSampleRate,
+    isSelected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val borderColor = if (isSelected) JohnsonColors.Brand else JohnsonColors.BorderSubtle
+    val textColor = if (isSelected) JohnsonColors.TextPrimary else JohnsonColors.TextSecondary
+    val safeOnClick = if (enabled) onClick else ({})
+    Card(
+        onClick = safeOnClick,
+        modifier = Modifier.touchClickable(enabled = enabled, onClick = safeOnClick)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (isSelected) JohnsonColors.BrandTint else JohnsonColors.SurfaceCard)
+                .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+                .padding(horizontal = 18.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = "${rate.hz} Hz",
+                color = textColor,
+                fontSize = 14.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
     }
 }
 
