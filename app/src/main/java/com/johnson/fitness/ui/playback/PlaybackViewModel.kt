@@ -3,6 +3,8 @@ package com.johnson.fitness.ui.playback
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitness.device.api.IDeviceManager
+import com.fitness.device.model.ConnectionState
+import com.fitness.device.model.ImuSampleRate
 import com.fitness.activityscoringcore.api.Availability
 import com.fitness.activityscoringcore.api.Score
 import com.fitness.activityscoringcore.engine.ScoringEngine
@@ -50,6 +52,7 @@ class PlaybackViewModel(
 
     private var feedbackDismissJob: Job? = null
     private var mafLoadJob: Job? = null
+    private var deviceBridgeJob: Job? = null
 
     // ActivityScoringCore 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
     // 是這裡自行累積三個面向的平均值，非 ScoringEngine 提供。
@@ -115,19 +118,53 @@ class PlaybackViewModel(
             }
         }
 
-        // IMU 樣本：換算到影片時間軸後才餵給引擎，見 videoTimeOffsetMs 說明
-        viewModelScope.launch {
-            motionAdapter.imuStream.collect { raw ->
-                val videoTimeMs = toVideoTimeMs(raw.timestampMs) ?: return@collect
-                engine.submitImuSample(raw.copy(timestampMs = videoTimeMs))
-            }
-        }
+    }
 
-        // 心率樣本：HealthData 沒有隨流傳遞裝置時間戳，用收到當下的 wall clock 近似即可
-        viewModelScope.launch {
-            motionAdapter.heartRateStream.collect { bpm ->
-                val videoTimeMs = toVideoTimeMs(System.currentTimeMillis()) ?: return@collect
-                engine.submitHeartRateSample(bpm, videoTimeMs)
+    /**
+     * 影片真正開始播放後才註冊 DeviceModule listener。callbackFlow 的 awaitClose 會在這個 Job
+     * 取消時移除 listener，避免離開播放頁後仍持續把手環資料送入已釋放的引擎。
+     */
+    private fun startDeviceBridge() {
+        if (deviceBridgeJob?.isActive == true) return
+        deviceBridgeJob = viewModelScope.launch {
+            launch {
+                motionAdapter.imuStream.collect { raw ->
+                    if (!videoIsPlaying) return@collect
+                    val videoTimeMs = toVideoTimeMs(raw.timestampMs) ?: return@collect
+                    engine.submitImuSample(raw.copy(timestampMs = videoTimeMs))
+                }
+            }
+            launch {
+                motionAdapter.heartRateStream.collect { bpm ->
+                    if (!videoIsPlaying) return@collect
+                    val videoTimeMs = toVideoTimeMs(System.currentTimeMillis()) ?: return@collect
+                    engine.submitHeartRateSample(bpm, videoTimeMs)
+                }
+            }
+            launch {
+                deviceManager.connectionState.collect { connection ->
+                    when (connection) {
+                        is ConnectionState.Connected -> {
+                            // Core 的 canonical rate 是 25 Hz；裝置不支援時 DeviceModule 會自行軟體節流。
+                            deviceManager.setImuSampleRate(ImuSampleRate.HZ_25)
+                            _state.update {
+                                val message = it.alertMessage.orEmpty()
+                                if (message.startsWith("手環") || message.startsWith("尚未連接手環")) {
+                                    it.copy(alertMessage = null)
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                        is ConnectionState.Connecting,
+                        is ConnectionState.Reconnecting ->
+                            _state.update { it.copy(alertMessage = "手環連線中，請稍候…") }
+                        is ConnectionState.Disconnected ->
+                            _state.update { it.copy(alertMessage = "尚未連接手環，請先到藍牙設定完成連線") }
+                        is ConnectionState.Error ->
+                            _state.update { it.copy(alertMessage = "手環連線失敗：${connection.message}") }
+                    }
+                }
             }
         }
     }
@@ -234,6 +271,7 @@ class PlaybackViewModel(
                 if (_state.value.isScoring && videoTimeOffsetMs == null && intent.isPlaying) {
                     // 影片首次開始播放：建立「裝置 epoch time -> videoTimeMs」的換算基準
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
+                    startDeviceBridge()
                     viewModelScope.launch { engine.start(intent.positionMs) }
                 } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
                     viewModelScope.launch { engine.resume() }
@@ -247,6 +285,8 @@ class PlaybackViewModel(
             is PlaybackIntent.StopScoring -> {
                 viewModelScope.launch {
                     if (_state.value.isScoring) {
+                        deviceBridgeJob?.cancel()
+                        deviceBridgeJob = null
                         engine.stop()
                         val finalScore = listOf(tempoAcc, trajectoryAcc, segmentSimilarityAcc)
                             .filter { it.hasData }
@@ -293,6 +333,7 @@ class PlaybackViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        deviceBridgeJob?.cancel()
         engine.release()
     }
 }
