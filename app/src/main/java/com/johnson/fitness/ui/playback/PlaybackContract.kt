@@ -28,6 +28,12 @@ data class PlaybackState(
         "軌跡" to null,
         "順序" to null
     ),
+    // Core 原始診斷摘要：availability / reason / coverage，供實機排查面向未出分原因。
+    val currentAspectDiagnostics: Map<String, String> = mapOf(
+        "節奏" to "尚未啟動",
+        "軌跡" to "尚未啟動",
+        "順序" to "尚未啟動"
+    ),
     val heartRate: Int = 0,
     val grade: String = "",
     val finalScore: Int? = null,

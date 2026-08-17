@@ -252,6 +252,7 @@ fun PlaybackScreen(
                 ScoreCard(
                     gameScore = state.gameScore,
                     aspectScores = state.currentAspectScores,
+                    aspectDiagnostics = state.currentAspectDiagnostics,
                     deviceStatus = state.deviceStatus,
                     imuSampleCount = state.imuSampleCount,
                     scoringStatus = state.scoringStatus
@@ -518,6 +519,7 @@ private fun HudCard(content: @Composable ColumnScope.() -> Unit) {
 private fun ScoreCard(
     gameScore: Int,
     aspectScores: Map<String, Int?>,
+    aspectDiagnostics: Map<String, String>,
     deviceStatus: String,
     imuSampleCount: Long,
     scoringStatus: String
@@ -553,6 +555,15 @@ private fun ScoreCard(
             fontSize = 9.sp,
             lineHeight = 11.sp
         )
+        Spacer(Modifier.height(5.dp))
+        listOf("節奏", "軌跡", "順序").forEach { name ->
+            Text(
+                text = "$name ${aspectDiagnostics[name] ?: "－"}",
+                color = if (aspectScores[name] == null) JohnsonColors.TextTertiary else JohnsonColors.Lime300,
+                fontSize = 8.sp,
+                lineHeight = 10.sp
+            )
+        }
     }
 }
 
@@ -1085,6 +1096,11 @@ private fun PlaybackScoringPreview() {
             ScoreCard(
                 gameScore = 89,
                 aspectScores = mapOf("節奏" to 92, "軌跡" to 86, "順序" to null),
+                aspectDiagnostics = mapOf(
+                    "節奏" to "可用 · OK · 100%",
+                    "軌跡" to "可用 · OK · 100%",
+                    "順序" to "不可用 · ASPECT_NOT_APPLICABLE · 0%"
+                ),
                 deviceStatus = "已連線",
                 imuSampleCount = 325,
                 scoringStatus = "Core 評分中"

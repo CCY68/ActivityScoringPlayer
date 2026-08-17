@@ -1,6 +1,7 @@
 package com.johnson.fitness.ui.playback
 
 import android.content.Context
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitness.device.api.IDeviceManager
@@ -99,6 +100,7 @@ class PlaybackViewModel(
     // 把「從沒收過樣本」也視為斷線），一進入播放頁、還沒收到裝置第一筆資料前就會先發出這個狀態。
     // 這裡要是預設 true，會把「還沒連上」誤判成「連線後斷線」，一進畫面就跳出斷線警告。
     private var wasImuConnected = false
+    private var lastAspectDiagnosticSignature: String? = null
 
     // 進入播放頁只嘗試自動連線一次；失敗或沒有存檔裝置就交給既有的斷線提示引導使用者手動連線，
     // 不要每次 connectionState 回到 Disconnected 就再打一次（例如自動連線失敗、或使用者手動斷線）。
@@ -132,7 +134,13 @@ class PlaybackViewModel(
                         "軌跡" to trajectory.availableValue(),
                         "順序" to segmentSimilarity.availableValue()
                     )
-                    applyWindowScore(displayScore, currentAspects)
+                    val diagnostics = mapOf(
+                        "節奏" to tempo.diagnosticText(),
+                        "軌跡" to trajectory.diagnosticText(),
+                        "順序" to segmentSimilarity.diagnosticText()
+                    )
+                    logAspectDiagnosticsIfChanged(tempo, trajectory, segmentSimilarity)
+                    applyWindowScore(displayScore, currentAspects, diagnostics)
                 }
         }
 
@@ -303,7 +311,38 @@ class PlaybackViewModel(
             ?.roundToInt()
             ?.coerceIn(0, 100)
 
-    private fun applyWindowScore(displayScore: Int, currentAspects: Map<String, Int?>) {
+    private fun Score.diagnosticText(): String {
+        val availabilityText = when (availability) {
+            Availability.AVAILABLE -> "可用"
+            Availability.WARMING_UP -> "暖機"
+            Availability.UNAVAILABLE -> "不可用"
+        }
+        val coveragePercent = (validCoverage * 100f).roundToInt().coerceIn(0, 100)
+        return "$availabilityText · $reason · ${coveragePercent}%"
+    }
+
+    private fun logAspectDiagnosticsIfChanged(tempo: Score, trajectory: Score, sequence: Score) {
+        val namedScores = listOf("tempo" to tempo, "trajectory" to trajectory, "sequence" to sequence)
+        val signature = namedScores.joinToString("|") { (_, score) ->
+            "${score.availability}:${score.reason}:${(score.validCoverage * 100f).roundToInt()}"
+        }
+        if (signature == lastAspectDiagnosticSignature) return
+        lastAspectDiagnosticSignature = signature
+        namedScores.forEach { (name, score) ->
+            Log.d(
+                ASPECT_LOG_TAG,
+                "$name availability=${score.availability} reason=${score.reason} " +
+                    "coverage=${score.validCoverage} confidence=${score.confidence} " +
+                    "value=${score.value} eventTimeMs=${score.eventTimeMs} featureTimeMs=${score.featureTimeMs}"
+            )
+        }
+    }
+
+    private fun applyWindowScore(
+        displayScore: Int,
+        currentAspects: Map<String, Int?>,
+        diagnostics: Map<String, String>
+    ) {
         val label = when {
             displayScore >= 90 -> "動作完美！"
             displayScore >= 75 -> "動作標準！"
@@ -317,6 +356,7 @@ class PlaybackViewModel(
                 gameScore     = displayScore,
                 combo         = 1,
                 currentAspectScores = currentAspects,
+                currentAspectDiagnostics = diagnostics,
                 feedbackLabel = label,
                 feedbackDelta = null
             )
@@ -430,5 +470,6 @@ class PlaybackViewModel(
 
     private companion object {
         const val IMU_SAMPLE_INTERVAL_MS = 40L
+        const val ASPECT_LOG_TAG = "ScoringAspect"
     }
 }
