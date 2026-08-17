@@ -162,8 +162,8 @@ fun PlaybackScreen(
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .fillMaxHeight()
-                .fillMaxWidth(0.62f)
-                .widthIn(min = 180.dp, max = 400.dp)
+                .fillMaxWidth(0.30f)
+                .widthIn(min = 120.dp, max = 220.dp)
                 .background(
                     Brush.horizontalGradient(
                         listOf(Color.Transparent, JohnsonColors.Ink1000.copy(alpha = 0.92f))
@@ -176,7 +176,7 @@ fun PlaybackScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(140.dp)
+                .height(96.dp)
                 .background(
                     Brush.verticalGradient(
                         listOf(Color.Transparent, JohnsonColors.Ink1000.copy(alpha = 0.7f))
@@ -241,15 +241,14 @@ fun PlaybackScreen(
 
         // 6. Right HUD panel (3 cards, visible while scoring)
         if (state.isScoring) {
-            // 固定 284dp 在手機窄螢幕上會占掉大半個畫面（284/380 ≈ 75%），
-            // 改成比例＋上下限：TV/平板維持原本 284dp 觀感，手機依螢幕寬度等比縮小。
+            // HUD 限制在畫面寬度約四分之一，避免遮住教練動作主體。
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 20.dp, end = if (isCompactWidth()) 16.dp else 32.dp)
-                    .fillMaxWidth(0.56f)
-                    .widthIn(min = 170.dp, max = 284.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                    .padding(top = 16.dp, end = if (isCompactWidth()) 10.dp else 20.dp)
+                    .fillMaxWidth(0.24f)
+                    .widthIn(min = 120.dp, max = 180.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ScoreCard(gameScore = state.gameScore, combo = state.combo)
                 HeartRateCard(heartRate = state.heartRate)
@@ -269,14 +268,14 @@ fun PlaybackScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = horizontalPadding, vertical = 14.dp),
+                    .padding(horizontal = horizontalPadding, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PlayPauseButton(
                     isPlaying = state.isPlaying,
                     onToggle = { exoPlayer.playWhenReady = !exoPlayer.playWhenReady }
                 )
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(10.dp))
                 Column {
                     Text(
                         text = "目前動作",
@@ -288,7 +287,7 @@ fun PlaybackScreen(
                         text = state.movie?.description?.takeIf { it.isNotBlank() }
                             ?: state.movie?.title ?: "",
                         color = JohnsonColors.TextPrimary,
-                        fontSize = 15.sp,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
@@ -501,10 +500,10 @@ private fun HudCard(content: @Composable ColumnScope.() -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(JohnsonColors.SurfaceCard)
-            .border(1.dp, JohnsonColors.BorderDefault, RoundedCornerShape(20.dp))
-            .padding(horizontal = 20.dp, vertical = 18.dp),
+            .border(1.dp, JohnsonColors.BorderDefault, RoundedCornerShape(14.dp))
+            .padding(horizontal = 13.dp, vertical = 10.dp),
         content = content
     )
 }
@@ -523,12 +522,12 @@ private fun ScoreCard(gameScore: Int, combo: Int) {
         Text(
             text = NumberFormat.getNumberInstance().format(gameScore),
             color = JohnsonColors.AccentScore,
-            fontSize = 52.sp,
+            fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
-            lineHeight = 56.sp
+            lineHeight = 38.sp
         )
         if (combo > 1) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(4.dp))
             Box(
                 modifier = Modifier
                     .background(JohnsonColors.AccentTint, RoundedCornerShape(999.dp))
@@ -537,12 +536,12 @@ private fun ScoreCard(gameScore: Int, combo: Int) {
                         JohnsonColors.AccentScore.copy(alpha = 0.3f),
                         RoundedCornerShape(999.dp)
                     )
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = "COMBO ×$combo",
                     color = JohnsonColors.AccentScore,
-                    fontSize = 12.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.3.sp
                 )
@@ -559,21 +558,21 @@ private fun HeartRateCard(heartRate: Int) {
 
     HudCard {
         Row(verticalAlignment = Alignment.Bottom) {
-            Text("♥", color = JohnsonColors.Brand, fontSize = 22.sp, lineHeight = 44.sp)
-            Spacer(Modifier.width(8.dp))
+            Text("♥", color = JohnsonColors.Brand, fontSize = 17.sp, lineHeight = 32.sp)
+            Spacer(Modifier.width(5.dp))
             Text(
                 text = if (heartRate > 0) heartRate.toString() else "--",
                 color = JohnsonColors.TextPrimary,
-                fontSize = 44.sp,
+                fontSize = 30.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 44.sp
+                lineHeight = 32.sp
             )
             Spacer(Modifier.width(5.dp))
             Text(
                 text = "BPM",
                 color = JohnsonColors.TextTertiary,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(bottom = 7.dp)
+                fontSize = 10.sp,
+                modifier = Modifier.padding(bottom = 4.dp)
             )
         }
         Spacer(Modifier.height(4.dp))
@@ -583,7 +582,7 @@ private fun HeartRateCard(heartRate: Int) {
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(7.dp))
         HrZoneBars(activeZone = zone)
     }
 }
@@ -606,18 +605,18 @@ private fun HrZoneBars(activeZone: Int) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
-                        .width(30.dp)
-                        .height(if (isActive) 8.dp else 5.dp)
+                        .width(21.dp)
+                        .height(if (isActive) 6.dp else 4.dp)
                         .background(
                             color = if (isActive) color else color.copy(alpha = 0.35f),
                             shape = RoundedCornerShape(2.dp)
                         )
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
                     text = label,
                     color = if (isActive) color else JohnsonColors.TextTertiary,
-                    fontSize = 10.sp,
+                    fontSize = 8.sp,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal
                 )
             }
@@ -631,7 +630,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Circular progress ring
             Box(
-                modifier = Modifier.size(80.dp),
+                modifier = Modifier.size(58.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val trackColor = JohnsonColors.Ink500
@@ -641,7 +640,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                         startAngle = 135f,
                         sweepAngle = 270f,
                         useCenter  = false,
-                        style      = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                        style      = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
                     )
                     if (accuracy > 0) {
                         drawArc(
@@ -649,7 +648,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                             startAngle = 135f,
                             sweepAngle = 270f * accuracy / 100f,
                             useCenter  = false,
-                            style      = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                            style      = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
                         )
                     }
                 }
@@ -657,7 +656,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                     Text(
                         text       = accuracy.toString(),
                         color      = JohnsonColors.TextPrimary,
-                        fontSize   = 22.sp,
+                        fontSize   = 18.sp,
                         fontWeight = FontWeight.Bold,
                         lineHeight = 22.sp
                     )
@@ -670,7 +669,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.width(16.dp))
+            Spacer(Modifier.width(10.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -680,18 +679,16 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(4.dp))
-                Text(
-                    text       = "動作比對中，跟上教練節奏",
-                    color      = JohnsonColors.TextSecondary,
-                    fontSize   = 12.sp,
-                    lineHeight = 17.sp
-                )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(6.dp))
                 Button(
                     onClick = onStop,
                     modifier = Modifier
                         .fillMaxWidth()
                         .touchClickable(onClick = onStop),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        horizontal = 8.dp,
+                        vertical = 5.dp
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor        = JohnsonColors.AccentScore,
                         contentColor          = JohnsonColors.Ink900,
@@ -700,9 +697,9 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                     )
                 ) {
                     Text(
-                        text       = "結束・看成果",
+                        text       = "結束評分",
                         fontWeight = FontWeight.Bold,
-                        fontSize   = 13.sp
+                        fontSize   = 11.sp
                     )
                 }
             }
@@ -721,7 +718,7 @@ private fun PlayPauseButton(isPlaying: Boolean, onToggle: () -> Unit) {
         onClick = onToggle,
         shape = ButtonDefaults.shape(shape = CircleShape),
         modifier = Modifier
-            .size(48.dp)
+            .size(40.dp)
             .touchClickable(onClick = onToggle),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)
     ) {
@@ -762,7 +759,7 @@ private fun VideoProgressBar(positionMs: Long, durationMs: Long, onSeek: (Long) 
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(24.dp)
+            .height(18.dp)
             .onSizeChanged { barWidthPx = it.width.toFloat() }
             .pointerInput(durationMs) {
                 if (durationMs <= 0) return@pointerInput
