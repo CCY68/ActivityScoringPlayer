@@ -17,11 +17,17 @@ data class PlaybackState(
     val deviceStatus: String = "尚未啟用",
     val imuSampleCount: Long = 0L,
     val scoringStatus: String = "等待影片開始",
-    // 即時窗口相似度 0–100，顯示於準度環
+    // 當下可用評分面向的即時平均，0–100。
     val accuracy: Int = 0,
-    // 遊戲化累積分數（accuracy × combo 累加）
+    // 目前三面向的即時平均，0–100，不累加。
     val gameScore: Int = 0,
     val combo: Int = 1,
+    // 當下三個即時面向；null 代表此面向在目前區段尚無有效分數，UI 顯示「－」。
+    val currentAspectScores: Map<String, Int?> = mapOf(
+        "節奏" to null,
+        "軌跡" to null,
+        "順序" to null
+    ),
     val heartRate: Int = 0,
     val grade: String = "",
     val finalScore: Int? = null,

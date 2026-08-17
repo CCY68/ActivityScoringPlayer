@@ -76,10 +76,15 @@ class PlaybackViewModel(
     private class Accumulator {
         private var sum = 0.0
         private var count = 0
+        private var lastEventTimeMs: Long? = null
+        private var lastFeatureTimeMs: Long? = null
         fun add(score: Score) {
-            if (score.availability == Availability.AVAILABLE) {
+            val isNewWindow = score.eventTimeMs != lastEventTimeMs || score.featureTimeMs != lastFeatureTimeMs
+            if (score.availability == Availability.AVAILABLE && isNewWindow) {
                 sum += score.value
                 count++
+                lastEventTimeMs = score.eventTimeMs
+                lastFeatureTimeMs = score.featureTimeMs
             }
         }
         val average: Int get() = if (count == 0) 0 else (sum / count).roundToInt().coerceIn(0, 100)
@@ -103,7 +108,7 @@ class PlaybackViewModel(
         loadMafBeforePlayback()
         tryAutoConnectToLastDevice()
 
-        // 三個評分面向：即時 UI 反饋（累積成 accuracy/gameScore/combo）+ 課程平均（累積成最終分數）
+        // 三個評分面向：即時 UI 顯示目前可用面向與其平均；另累積各有效窗口供課程結束時計算平均。
         viewModelScope.launch {
             combine(engine.tempo, engine.trajectory, engine.sequence) { t, tr, s -> Triple(t, tr, s) }
                 .collect { (tempo, trajectory, segmentSimilarity) ->
@@ -115,10 +120,19 @@ class PlaybackViewModel(
 
                     val available = scores
                         .filter { it.availability == Availability.AVAILABLE }
-                    if (available.isNotEmpty()) {
-                        val displayScore = available.map { it.value }.average().roundToInt().coerceIn(0, 100)
-                        applyWindowScore(displayScore)
-                    }
+                    val displayScore = available
+                        .takeIf { it.isNotEmpty() }
+                        ?.map { it.value }
+                        ?.average()
+                        ?.roundToInt()
+                        ?.coerceIn(0, 100)
+                        ?: 0
+                    val currentAspects = mapOf(
+                        "節奏" to tempo.availableValue(),
+                        "軌跡" to trajectory.availableValue(),
+                        "順序" to segmentSimilarity.availableValue()
+                    )
+                    applyWindowScore(displayScore, currentAspects)
                 }
         }
 
@@ -283,10 +297,13 @@ class PlaybackViewModel(
             "MAF 尚未通過要求的人工複核狀態。"
     }
 
-    private fun applyWindowScore(displayScore: Int) {
-        val prevCombo = _state.value.combo
-        val newCombo = if (displayScore >= 70) (prevCombo + 1).coerceAtMost(8) else 1
-        val delta = (displayScore / 10) * newCombo
+    private fun Score.availableValue(): Int? =
+        takeIf { it.availability == Availability.AVAILABLE }
+            ?.value
+            ?.roundToInt()
+            ?.coerceIn(0, 100)
+
+    private fun applyWindowScore(displayScore: Int, currentAspects: Map<String, Int?>) {
         val label = when {
             displayScore >= 90 -> "動作完美！"
             displayScore >= 75 -> "動作標準！"
@@ -297,10 +314,11 @@ class PlaybackViewModel(
         _state.update {
             it.copy(
                 accuracy      = displayScore,
-                gameScore     = it.gameScore + delta,
-                combo         = newCombo,
+                gameScore     = displayScore,
+                combo         = 1,
+                currentAspectScores = currentAspects,
                 feedbackLabel = label,
-                feedbackDelta = if (label != null) "+$delta" else null
+                feedbackDelta = null
             )
         }
         feedbackDismissJob?.cancel()

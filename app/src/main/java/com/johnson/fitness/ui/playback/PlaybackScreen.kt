@@ -73,7 +73,6 @@ import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.theme.JohnsonColors
 import androidx.compose.foundation.layout.widthIn
 import kotlinx.coroutines.delay
-import java.text.NumberFormat
 import androidx.compose.ui.tooling.preview.Preview
 
 // ─── Entry ────────────────────────────────────────────────────────────────────
@@ -252,7 +251,7 @@ fun PlaybackScreen(
             ) {
                 ScoreCard(
                     gameScore = state.gameScore,
-                    combo = state.combo,
+                    aspectScores = state.currentAspectScores,
                     deviceStatus = state.deviceStatus,
                     imuSampleCount = state.imuSampleCount,
                     scoringStatus = state.scoringStatus
@@ -260,6 +259,7 @@ fun PlaybackScreen(
                 HeartRateCard(heartRate = state.heartRate)
                 AccuracyCard(
                     accuracy = state.accuracy,
+                    aspectScores = state.currentAspectScores,
                     onStop   = { viewModel.onIntent(PlaybackIntent.StopScoring) }
                 )
             }
@@ -517,7 +517,7 @@ private fun HudCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun ScoreCard(
     gameScore: Int,
-    combo: Int,
+    aspectScores: Map<String, Int?>,
     deviceStatus: String,
     imuSampleCount: Long,
     scoringStatus: String
@@ -532,33 +532,13 @@ private fun ScoreCard(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = NumberFormat.getNumberInstance().format(gameScore),
+            text = gameScore.toString(),
             color = JohnsonColors.AccentScore,
             fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
             lineHeight = 38.sp
         )
-        if (combo > 1) {
-            Spacer(Modifier.height(4.dp))
-            Box(
-                modifier = Modifier
-                    .background(JohnsonColors.AccentTint, RoundedCornerShape(999.dp))
-                    .border(
-                        1.dp,
-                        JohnsonColors.AccentScore.copy(alpha = 0.3f),
-                        RoundedCornerShape(999.dp)
-                    )
-                    .padding(horizontal = 8.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = "COMBO ×$combo",
-                    color = JohnsonColors.AccentScore,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.3.sp
-                )
-            }
-        }
+        AspectScoresRow(aspectScores)
         Spacer(Modifier.height(6.dp))
         Text(
             text = "手環 $deviceStatus · IMU $imuSampleCount",
@@ -651,7 +631,11 @@ private fun HrZoneBars(activeZone: Int) {
 }
 
 @Composable
-private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
+private fun AccuracyCard(
+    accuracy: Int,
+    aspectScores: Map<String, Int?>,
+    onStop: () -> Unit
+) {
     HudCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
             // Circular progress ring
@@ -705,6 +689,7 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(4.dp))
+                AspectScoresRow(aspectScores)
                 Spacer(Modifier.height(6.dp))
                 Button(
                     onClick = onStop,
@@ -728,6 +713,32 @@ private fun AccuracyCard(accuracy: Int, onStop: () -> Unit) {
                         fontSize   = 11.sp
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AspectScoresRow(scores: Map<String, Int?>) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        listOf("節奏", "軌跡", "順序").forEach { name ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = name,
+                    color = JohnsonColors.TextTertiary,
+                    fontSize = 8.sp,
+                    lineHeight = 10.sp
+                )
+                Text(
+                    text = scores[name]?.toString() ?: "－",
+                    color = if (scores[name] == null) JohnsonColors.TextTertiary else JohnsonColors.TextPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    lineHeight = 12.sp
+                )
             }
         }
     }
@@ -1072,14 +1083,18 @@ private fun PlaybackScoringPreview() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             ScoreCard(
-                gameScore = 5_948,
-                combo = 4,
+                gameScore = 89,
+                aspectScores = mapOf("節奏" to 92, "軌跡" to 86, "順序" to null),
                 deviceStatus = "已連線",
                 imuSampleCount = 325,
                 scoringStatus = "Core 評分中"
             )
             HeartRateCard(heartRate = 150)
-            AccuracyCard(accuracy = 89, onStop = {})
+            AccuracyCard(
+                accuracy = 89,
+                aspectScores = mapOf("節奏" to 92, "軌跡" to 86, "順序" to null),
+                onStop = {}
+            )
         }
         Column(
             modifier = Modifier
