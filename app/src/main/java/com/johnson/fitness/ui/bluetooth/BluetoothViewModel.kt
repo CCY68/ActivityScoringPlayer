@@ -14,6 +14,7 @@ import com.fitness.device.model.DeviceBrand
 import com.fitness.device.model.DeviceInfo
 import com.fitness.device.model.ImuSampleRate
 import com.fitness.device.model.PpgData
+import com.johnson.fitness.data.LastDevicePreferences
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,7 +24,8 @@ import kotlinx.coroutines.launch
 
 class BluetoothViewModel(
     private val context: Context,
-    val deviceManager: IDeviceManager
+    val deviceManager: IDeviceManager,
+    private val lastDevicePreferences: LastDevicePreferences
 ) : ViewModel() {
 
     private val bluetoothAdapter =
@@ -58,6 +60,10 @@ class BluetoothViewModel(
         viewModelScope.launch {
             deviceManager.connectionState.collect { connState ->
                 _state.value = _state.value.copy(connectionState = connState)
+                if (connState is ConnectionState.Connected) {
+                    // 記住這支裝置，下次進入播放頁才能直接自動連線（見 PlaybackViewModel.tryAutoConnectToLastDevice）
+                    lastDevicePreferences.save(connState.device)
+                }
                 if (connState is ConnectionState.Error) {
                     _effect.send(BluetoothEffect.ShowConnectionError(connState.message))
                 }

@@ -85,7 +85,7 @@ fun PlaybackScreen(
     onBack: () -> Unit,
     viewModel: PlaybackViewModel = viewModel(key = "playback_$movieId") {
         val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]) as FitnessApp
-        PlaybackViewModel(movieId, app.scoringEngineFactory, app.deviceManager)
+        PlaybackViewModel(movieId, app.scoringEngineFactory, app.deviceManager, app, app.lastDevicePreferences)
     }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()

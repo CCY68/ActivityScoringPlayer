@@ -2,9 +2,6 @@
 
 package com.johnson.fitness.ui.bluetooth
 
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,11 +42,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.johnson.fitness.FitnessApp
+import com.johnson.fitness.data.BlePermissions
 import androidx.tv.material3.Button
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -70,17 +67,13 @@ fun BluetoothScreen(
     onBack: () -> Unit,
     viewModel: BluetoothViewModel = viewModel {
         val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]) as FitnessApp
-        BluetoothViewModel(app, app.deviceManager)
+        BluetoothViewModel(app, app.deviceManager, app.lastDevicePreferences)
     }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    val requiredPermissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
-    } else {
-        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
+    val requiredPermissions = BlePermissions.required
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -89,10 +82,7 @@ fun BluetoothScreen(
     }
 
     LaunchedEffect(Unit) {
-        val allGranted = requiredPermissions.all {
-            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-        }
-        if (allGranted) viewModel.onIntent(BluetoothIntent.StartScan)
+        if (BlePermissions.isGranted(context)) viewModel.onIntent(BluetoothIntent.StartScan)
         else permissionLauncher.launch(requiredPermissions)
     }
 

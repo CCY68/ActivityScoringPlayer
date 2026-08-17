@@ -1,5 +1,6 @@
 package com.johnson.fitness.ui.playback
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.fitness.device.api.IDeviceManager
@@ -9,6 +10,8 @@ import com.fitness.activityscoringcore.api.Availability
 import com.fitness.activityscoringcore.api.Score
 import com.fitness.activityscoringcore.engine.ScoringEngine
 import com.motionmaf.format.MafLoadResult
+import com.johnson.fitness.data.DeviceAutoConnect
+import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.MovieRepository
 import com.johnson.fitness.data.ScoringEngineFactory
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +31,9 @@ import kotlin.math.roundToInt
 class PlaybackViewModel(
     val movieId: Long,
     private val engineFactory: ScoringEngineFactory,
-    val deviceManager: IDeviceManager
+    val deviceManager: IDeviceManager,
+    private val appContext: Context,
+    private val lastDevicePreferences: LastDevicePreferences
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PlaybackState(movie = MovieRepository.getMovieById(movieId)))
@@ -78,8 +83,13 @@ class PlaybackViewModel(
     // 這裡要是預設 true，會把「還沒連上」誤判成「連線後斷線」，一進畫面就跳出斷線警告。
     private var wasImuConnected = false
 
+    // 進入播放頁只嘗試自動連線一次；失敗或沒有存檔裝置就交給既有的斷線提示引導使用者手動連線，
+    // 不要每次 connectionState 回到 Disconnected 就再打一次（例如自動連線失敗、或使用者手動斷線）。
+    private var autoConnectAttempted = false
+
     init {
         loadMafBeforePlayback()
+        tryAutoConnectToLastDevice()
 
         // 三個評分面向：即時 UI 反饋（累積成 accuracy/gameScore/combo）+ 課程平均（累積成最終分數）
         viewModelScope.launch {
@@ -118,6 +128,19 @@ class PlaybackViewModel(
             }
         }
 
+    }
+
+    /**
+     * 進入播放頁時的自動連線兜底：正常情況下 App 一啟動（[com.johnson.fitness.FitnessApp.onCreate]）
+     * 就已經嘗試連回上次的裝置，這裡只處理「當時沒連上」的情況再試一次——例如剛安裝/剛授權藍牙權限、
+     * 或 App 啟動當下裝置還沒開機。只嘗試一次（[autoConnectAttempted]），沒有存檔裝置、沒有藍牙權限、
+     * 或已經在連線中/已連線都直接跳過，交給既有的 connectionState 監聽（見 [startDeviceBridge]）
+     * 顯示對應提示；連線失敗一樣會反映在 connectionState，沿用既有的錯誤提示即可，不特別處理。
+     */
+    private fun tryAutoConnectToLastDevice() {
+        if (autoConnectAttempted) return
+        autoConnectAttempted = true
+        DeviceAutoConnect.tryConnect(viewModelScope, appContext, deviceManager, lastDevicePreferences)
     }
 
     /**
