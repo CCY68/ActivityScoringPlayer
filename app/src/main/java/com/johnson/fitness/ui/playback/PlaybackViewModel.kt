@@ -25,7 +25,7 @@ import kotlin.math.roundToInt
 
 class PlaybackViewModel(
     val movieId: Long,
-    engineFactory: ScoringEngineFactory,
+    private val engineFactory: ScoringEngineFactory,
     val deviceManager: IDeviceManager
 ) : ViewModel() {
 
@@ -49,6 +49,7 @@ class PlaybackViewModel(
     private fun toVideoTimeMs(deviceEpochMs: Long): Long? = videoTimeOffsetMs?.let { deviceEpochMs - it }
 
     private var feedbackDismissJob: Job? = null
+    private var mafLoadJob: Job? = null
 
     // ActivityScoringCore 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
     // 是這裡自行累積三個面向的平均值，非 ScoringEngine 提供。
@@ -75,15 +76,7 @@ class PlaybackViewModel(
     private var wasImuConnected = false
 
     init {
-        viewModelScope.launch {
-            // 讀 assets + 解析 JSON 都是阻塞工作，丟到 IO dispatcher，避免卡住 Main
-            val loadResult = withContext(Dispatchers.IO) {
-                engineFactory.loadMaf(engine, movieId)
-            }
-            // 沒有 .maf 素材，或載入失敗（見 MafLoadResult 各失敗分支）：僅播放影片、不進入評分模式，
-            // 跟舊版 loadReferenceData() 回傳 false 時的降級行為一致。
-            _state.update { it.copy(isScoring = loadResult is MafLoadResult.Success) }
-        }
+        loadMafBeforePlayback()
 
         // 三個評分面向：即時 UI 反饋（累積成 accuracy/gameScore/combo）+ 課程平均（累積成最終分數）
         viewModelScope.launch {
@@ -139,6 +132,53 @@ class PlaybackViewModel(
         }
     }
 
+    private fun loadMafBeforePlayback() {
+        mafLoadJob?.cancel()
+        _state.update {
+            it.copy(
+                mafLoadStatus = MafLoadStatus.LOADING,
+                mafLoadError = null,
+                isScoring = false
+            )
+        }
+        mafLoadJob = viewModelScope.launch {
+            // 讀 assets、AES-GCM 解密與 JSON 驗證都是阻塞工作，避免在 Main thread 執行。
+            val result = withContext(Dispatchers.IO) {
+                engineFactory.loadMaf(engine, movieId)
+            }
+            _state.update {
+                if (result is MafLoadResult.Success) {
+                    it.copy(
+                        mafLoadStatus = MafLoadStatus.READY,
+                        mafLoadError = null,
+                        isScoring = true
+                    )
+                } else {
+                    it.copy(
+                        mafLoadStatus = MafLoadStatus.FAILED,
+                        mafLoadError = describeMafLoadFailure(result),
+                        isScoring = false
+                    )
+                }
+            }
+        }
+    }
+
+    private fun describeMafLoadFailure(result: MafLoadResult?): String = when (result) {
+        null -> "找不到這部影片對應的 MAF 評分檔或內容金鑰。"
+        is MafLoadResult.Success -> ""
+        is MafLoadResult.SchemaVersionRejected ->
+            "MAF 版本不支援（${result.found}）。"
+        is MafLoadResult.IntegrityFailure ->
+            "MAF 完整性驗證失敗。"
+        is MafLoadResult.ParseError ->
+            "MAF 解密或解析失敗：${result.message}"
+        is MafLoadResult.SegmentValidationFailed ->
+            "MAF 內容驗證失敗，共 ${result.errors.size} 個問題。"
+        is MafLoadResult.ReviewStatusRejected ->
+            "MAF 尚未通過要求的人工複核狀態。"
+    }
+
     private fun applyWindowScore(displayScore: Int) {
         val prevCombo = _state.value.combo
         val newCombo = if (displayScore >= 70) (prevCombo + 1).coerceAtMost(8) else 1
@@ -170,6 +210,15 @@ class PlaybackViewModel(
 
     fun onIntent(intent: PlaybackIntent) {
         when (intent) {
+            is PlaybackIntent.PlayWithoutScoring -> {
+                _state.update {
+                    it.copy(
+                        mafLoadStatus = MafLoadStatus.PLAY_WITHOUT_SCORING,
+                        mafLoadError = null,
+                        isScoring = false
+                    )
+                }
+            }
             is PlaybackIntent.VideoStateChanged -> {
                 val wasPlaying = videoIsPlaying
                 videoPositionMs = intent.positionMs
@@ -182,13 +231,13 @@ class PlaybackViewModel(
                     )
                 }
 
-                if (videoTimeOffsetMs == null && intent.isPlaying) {
+                if (_state.value.isScoring && videoTimeOffsetMs == null && intent.isPlaying) {
                     // 影片首次開始播放：建立「裝置 epoch time -> videoTimeMs」的換算基準
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
                     viewModelScope.launch { engine.start(intent.positionMs) }
-                } else if (!wasPlaying && intent.isPlaying) {
+                } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
                     viewModelScope.launch { engine.resume() }
-                } else if (wasPlaying && !intent.isPlaying) {
+                } else if (_state.value.isScoring && wasPlaying && !intent.isPlaying) {
                     viewModelScope.launch { engine.pause() }
                 }
             }

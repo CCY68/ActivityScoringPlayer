@@ -35,6 +35,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog as MaterialAlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,6 +97,23 @@ fun PlaybackScreen(
                 is PlaybackEffect.NavigateBack -> onBack()
             }
         }
+    }
+
+    when (state.mafLoadStatus) {
+        MafLoadStatus.LOADING -> {
+            MafLoadingScreen()
+            return
+        }
+        MafLoadStatus.FAILED -> {
+            MafLoadFailureScreen(
+                message = state.mafLoadError.orEmpty(),
+                onCancel = { viewModel.onIntent(PlaybackIntent.BackPressed) },
+                onPlayWithoutScoring = { viewModel.onIntent(PlaybackIntent.PlayWithoutScoring) }
+            )
+            return
+        }
+        MafLoadStatus.READY,
+        MafLoadStatus.PLAY_WITHOUT_SCORING -> Unit
     }
 
     val exoPlayer = remember {
@@ -318,6 +337,72 @@ fun PlaybackScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MafLoadingScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(JohnsonColors.Ink1000),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(18.dp)
+        ) {
+            CircularProgressIndicator(color = JohnsonColors.Brand)
+            Text(
+                text = "正在載入評分資料…",
+                color = JohnsonColors.TextPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+@Composable
+private fun MafLoadFailureScreen(
+    message: String,
+    onCancel: () -> Unit,
+    onPlayWithoutScoring: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(JohnsonColors.Ink1000)
+    ) {
+        MaterialAlertDialog(
+            onDismissRequest = {},
+            title = { Text("評分資料載入失敗") },
+            text = {
+                Text(
+                    text = message.ifBlank { "無法載入這部影片的評分資料。" },
+                    color = JohnsonColors.TextPrimary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = onCancel,
+                    modifier = Modifier.touchClickable(onClick = onCancel)
+                ) {
+                    Text("取消觀看影片")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = onPlayWithoutScoring,
+                    modifier = Modifier.touchClickable(onClick = onPlayWithoutScoring)
+                ) {
+                    Text("直接看影片（不評分）")
+                }
+            },
+            containerColor = JohnsonColors.Ink800,
+            titleContentColor = JohnsonColors.TextPrimary,
+            textContentColor = JohnsonColors.TextSecondary
+        )
     }
 }
 

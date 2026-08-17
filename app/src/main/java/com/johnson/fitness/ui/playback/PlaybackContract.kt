@@ -2,8 +2,17 @@ package com.johnson.fitness.ui.playback
 
 import com.johnson.fitness.model.Movie
 
+enum class MafLoadStatus {
+    LOADING,
+    READY,
+    FAILED,
+    PLAY_WITHOUT_SCORING
+}
+
 data class PlaybackState(
     val movie: Movie? = null,
+    val mafLoadStatus: MafLoadStatus = MafLoadStatus.LOADING,
+    val mafLoadError: String? = null,
     val isScoring: Boolean = false,
     // 即時窗口相似度 0–100，顯示於準度環
     val accuracy: Int = 0,
@@ -27,6 +36,7 @@ data class PlaybackState(
 
 sealed class PlaybackIntent {
     object BackPressed : PlaybackIntent()
+    object PlayWithoutScoring : PlaybackIntent()
     data class VideoStateChanged(
         val positionMs: Long,
         val durationMs: Long,
