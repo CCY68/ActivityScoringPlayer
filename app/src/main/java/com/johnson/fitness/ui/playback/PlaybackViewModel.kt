@@ -8,6 +8,7 @@ import com.fitness.device.model.ConnectionState
 import com.fitness.device.model.ImuSampleRate
 import com.fitness.activityscoringcore.api.Availability
 import com.fitness.activityscoringcore.api.Score
+import com.fitness.activityscoringcore.api.ScoreReason
 import com.fitness.activityscoringcore.engine.ScoringEngine
 import com.motionmaf.format.MafLoadResult
 import com.johnson.fitness.data.DeviceAutoConnect
@@ -48,16 +49,27 @@ class PlaybackViewModel(
     @Volatile private var videoPositionMs = 0L
     @Volatile private var videoIsPlaying = false
 
-    // IMU/心率樣本的時間戳是裝置端 wall clock（epoch ms），但 ScoringEngine 的 videoTimeMs
-    // 是「影片播放位置」時基（ADR 0018：每筆資料自己推進 videoTimeMs，不是外部 pull）。
-    // 影片第一次開始播放時記錄兩個時鐘的差值，之後每筆樣本都靠這個 offset 換算。
+    // 心率回調沒有時間戳，影片第一次開始播放時記錄 wall clock 與影片時間的差值供它換算。
     @Volatile private var videoTimeOffsetMs: Long? = null
 
     private fun toVideoTimeMs(deviceEpochMs: Long): Long? = videoTimeOffsetMs?.let { deviceEpochMs - it }
 
+    // B20 每個 BLE frame 會一次解出多筆 IMU；device-module 目前會在「每一包」重新以
+    // currentTimeMillis 建立時間戳，造成前一包尾端時間晚於下一包開頭。Core 會把這種時間倒退
+    // 視為感測器重啟並清空視窗，因此畫面會永遠停在暖機。這裡依已要求的 25 Hz 建立連續的
+    // 影片時間軸；暫停、續播或 seek 時重新錨定到播放器位置。
+    @Volatile private var lastStableImuVideoTimeMs: Long? = null
+
+    private fun nextStableImuVideoTimeMs(): Long {
+        val next = lastStableImuVideoTimeMs?.plus(IMU_SAMPLE_INTERVAL_MS) ?: videoPositionMs
+        lastStableImuVideoTimeMs = next
+        return next
+    }
+
     private var feedbackDismissJob: Job? = null
     private var mafLoadJob: Job? = null
     private var deviceBridgeJob: Job? = null
+    private var receivedImuSampleCount = 0L
 
     // ActivityScoringCore 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
     // 是這裡自行累積三個面向的平均值，非 ScoringEngine 提供。
@@ -70,7 +82,7 @@ class PlaybackViewModel(
                 count++
             }
         }
-        val average: Int get() = if (count == 0) 0 else ((sum / count) * 100).toInt().coerceIn(0, 100)
+        val average: Int get() = if (count == 0) 0 else (sum / count).roundToInt().coerceIn(0, 100)
         val hasData: Boolean get() = count > 0
     }
 
@@ -95,14 +107,16 @@ class PlaybackViewModel(
         viewModelScope.launch {
             combine(engine.tempo, engine.trajectory, engine.sequence) { t, tr, s -> Triple(t, tr, s) }
                 .collect { (tempo, trajectory, segmentSimilarity) ->
+                    val scores = listOf(tempo, trajectory, segmentSimilarity)
+                    _state.update { it.copy(scoringStatus = describeScoringStatus(scores)) }
                     tempoAcc.add(tempo)
                     trajectoryAcc.add(trajectory)
                     segmentSimilarityAcc.add(segmentSimilarity)
 
-                    val available = listOf(tempo, trajectory, segmentSimilarity)
+                    val available = scores
                         .filter { it.availability == Availability.AVAILABLE }
                     if (available.isNotEmpty()) {
-                        val displayScore = (available.map { it.value }.average() * 100).toInt().coerceIn(0, 100)
+                        val displayScore = available.map { it.value }.average().roundToInt().coerceIn(0, 100)
                         applyWindowScore(displayScore)
                     }
                 }
@@ -153,8 +167,13 @@ class PlaybackViewModel(
             launch {
                 motionAdapter.imuStream.collect { raw ->
                     if (!videoIsPlaying) return@collect
-                    val videoTimeMs = toVideoTimeMs(raw.timestampMs) ?: return@collect
+                    val videoTimeMs = nextStableImuVideoTimeMs()
                     engine.submitImuSample(raw.copy(timestampMs = videoTimeMs))
+                    receivedImuSampleCount++
+                    if (receivedImuSampleCount == 1L || receivedImuSampleCount % 25L == 0L) {
+                        // 這裡只計算已實際呼叫 submitImuSample() 的樣本，不是單純收到的 BLE 回調。
+                        _state.update { it.copy(imuSampleCount = receivedImuSampleCount) }
+                    }
                 }
             }
             launch {
@@ -173,22 +192,47 @@ class PlaybackViewModel(
                             _state.update {
                                 val message = it.alertMessage.orEmpty()
                                 if (message.startsWith("手環") || message.startsWith("尚未連接手環")) {
-                                    it.copy(alertMessage = null)
+                                    it.copy(alertMessage = null, deviceStatus = "已連線")
                                 } else {
-                                    it
+                                    it.copy(deviceStatus = "已連線")
                                 }
                             }
                         }
                         is ConnectionState.Connecting,
                         is ConnectionState.Reconnecting ->
-                            _state.update { it.copy(alertMessage = "手環連線中，請稍候…") }
+                            _state.update { it.copy(alertMessage = "手環連線中，請稍候…", deviceStatus = "連線中") }
                         is ConnectionState.Disconnected ->
-                            _state.update { it.copy(alertMessage = "尚未連接手環，請先到藍牙設定完成連線") }
+                            _state.update {
+                                it.copy(
+                                    alertMessage = "尚未連接手環，請先到藍牙設定完成連線",
+                                    deviceStatus = "未連線"
+                                )
+                            }
                         is ConnectionState.Error ->
-                            _state.update { it.copy(alertMessage = "手環連線失敗：${connection.message}") }
+                            _state.update {
+                                it.copy(
+                                    alertMessage = "手環連線失敗：${connection.message}",
+                                    deviceStatus = "連線失敗"
+                                )
+                            }
                     }
                 }
             }
+        }
+    }
+
+    private fun describeScoringStatus(scores: List<Score>): String {
+        if (scores.any { it.availability == Availability.AVAILABLE }) return "Core 評分中"
+        if (scores.any { it.availability == Availability.WARMING_UP }) return "Core 暖機中"
+        val reasons = scores.map { it.reason }.toSet()
+        return when {
+            ScoreReason.NOT_STARTED in reasons -> "Core 尚未啟動"
+            ScoreReason.PAUSED in reasons -> "Core 已暫停"
+            ScoreReason.NO_ACTIVE_SEGMENT in reasons -> "等待 MAF 評分區段"
+            ScoreReason.INSUFFICIENT_COVERAGE in reasons -> "IMU 資料累積中"
+            ScoreReason.PLAYBACK_RATE_ABNORMAL in reasons -> "播放速度不支援評分"
+            ScoreReason.ASPECT_NOT_APPLICABLE in reasons -> "目前區段無適用面向"
+            else -> "等待 Core 輸出"
         }
     }
 
@@ -297,8 +341,10 @@ class PlaybackViewModel(
                     startDeviceBridge()
                     viewModelScope.launch { engine.start(intent.positionMs) }
                 } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
+                    lastStableImuVideoTimeMs = null
                     viewModelScope.launch { engine.resume() }
                 } else if (_state.value.isScoring && wasPlaying && !intent.isPlaying) {
+                    lastStableImuVideoTimeMs = null
                     viewModelScope.launch { engine.pause() }
                 }
             }
@@ -335,11 +381,15 @@ class PlaybackViewModel(
             }
             is PlaybackIntent.Seek -> {
                 videoPositionMs = intent.positionMs
+                lastStableImuVideoTimeMs = null
                 _state.update { it.copy(videoPositionMs = intent.positionMs) }
                 // 只有已經建立過換算基準（影片已開始播放過）才需要重新校正；
                 // 還沒開始播放就不會有這個 offset，維持 null 讓它在真正開始播放時正常建立。
                 videoTimeOffsetMs?.let {
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
+                    if (_state.value.isScoring) {
+                        viewModelScope.launch { engine.seek(intent.positionMs) }
+                    }
                 }
             }
         }
@@ -358,5 +408,9 @@ class PlaybackViewModel(
         super.onCleared()
         deviceBridgeJob?.cancel()
         engine.release()
+    }
+
+    private companion object {
+        const val IMU_SAMPLE_INTERVAL_MS = 40L
     }
 }

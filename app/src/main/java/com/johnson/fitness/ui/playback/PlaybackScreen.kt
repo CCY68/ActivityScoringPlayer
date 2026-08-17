@@ -250,7 +250,13 @@ fun PlaybackScreen(
                     .widthIn(min = 120.dp, max = 180.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ScoreCard(gameScore = state.gameScore, combo = state.combo)
+                ScoreCard(
+                    gameScore = state.gameScore,
+                    combo = state.combo,
+                    deviceStatus = state.deviceStatus,
+                    imuSampleCount = state.imuSampleCount,
+                    scoringStatus = state.scoringStatus
+                )
                 HeartRateCard(heartRate = state.heartRate)
                 AccuracyCard(
                     accuracy = state.accuracy,
@@ -509,7 +515,13 @@ private fun HudCard(content: @Composable ColumnScope.() -> Unit) {
 }
 
 @Composable
-private fun ScoreCard(gameScore: Int, combo: Int) {
+private fun ScoreCard(
+    gameScore: Int,
+    combo: Int,
+    deviceStatus: String,
+    imuSampleCount: Long,
+    scoringStatus: String
+) {
     HudCard {
         Text(
             text = "分數  SCORE",
@@ -547,6 +559,20 @@ private fun ScoreCard(gameScore: Int, combo: Int) {
                 )
             }
         }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "手環 $deviceStatus · IMU $imuSampleCount",
+            color = if (imuSampleCount > 0) JohnsonColors.Lime300 else JohnsonColors.TextTertiary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(2.dp))
+        Text(
+            text = scoringStatus,
+            color = JohnsonColors.TextSecondary,
+            fontSize = 9.sp,
+            lineHeight = 11.sp
+        )
     }
 }
 
@@ -1045,7 +1071,13 @@ private fun PlaybackScoringPreview() {
                 .width(284.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ScoreCard(gameScore = 5_948, combo = 4)
+            ScoreCard(
+                gameScore = 5_948,
+                combo = 4,
+                deviceStatus = "已連線",
+                imuSampleCount = 325,
+                scoringStatus = "Core 評分中"
+            )
             HeartRateCard(heartRate = 150)
             AccuracyCard(accuracy = 89, onStop = {})
         }

@@ -14,6 +14,9 @@ data class PlaybackState(
     val mafLoadStatus: MafLoadStatus = MafLoadStatus.LOADING,
     val mafLoadError: String? = null,
     val isScoring: Boolean = false,
+    val deviceStatus: String = "尚未啟用",
+    val imuSampleCount: Long = 0L,
+    val scoringStatus: String = "等待影片開始",
     // 即時窗口相似度 0–100，顯示於準度環
     val accuracy: Int = 0,
     // 遊戲化累積分數（accuracy × combo 累加）
