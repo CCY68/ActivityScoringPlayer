@@ -51,9 +51,7 @@ android {
 dependencies {
     implementation(files("libs/device-module.aar"))
     implementation(files("libs/activity-scoring-core.aar"))
-    // ActivityScoringCore 依賴 maf-format（com.motionmaf.format.*）解析 .maf 課程檔，
-    // 但 implementation(files(...)) 這種本機檔案依賴不會帶出任何 transitive 依賴，須另外補上。
-    implementation(files("libs/maf-format.jar"))
+    // Core AAR 已內含 MAF 解析／解密 class；kotlinx.serialization 仍是其外部 runtime dependency。
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.core.ktx)
     implementation(platform(libs.compose.bom))

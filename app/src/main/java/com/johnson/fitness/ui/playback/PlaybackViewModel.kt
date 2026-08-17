@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class PlaybackViewModel(
     val movieId: Long,
@@ -77,7 +78,7 @@ class PlaybackViewModel(
         viewModelScope.launch {
             // 讀 assets + 解析 JSON 都是阻塞工作，丟到 IO dispatcher，避免卡住 Main
             val loadResult = withContext(Dispatchers.IO) {
-                engineFactory.readMafBytes(movieId)?.let { engine.loadMaf(it) }
+                engineFactory.loadMaf(engine, movieId)
             }
             // 沒有 .maf 素材，或載入失敗（見 MafLoadResult 各失敗分支）：僅播放影片、不進入評分模式，
             // 跟舊版 loadReferenceData() 回傳 false 時的降級行為一致。
@@ -86,7 +87,7 @@ class PlaybackViewModel(
 
         // 三個評分面向：即時 UI 反饋（累積成 accuracy/gameScore/combo）+ 課程平均（累積成最終分數）
         viewModelScope.launch {
-            combine(engine.tempo, engine.trajectory, engine.segmentSimilarity) { t, tr, s -> Triple(t, tr, s) }
+            combine(engine.tempo, engine.trajectory, engine.sequence) { t, tr, s -> Triple(t, tr, s) }
                 .collect { (tempo, trajectory, segmentSimilarity) ->
                     tempoAcc.add(tempo)
                     trajectoryAcc.add(trajectory)
@@ -104,7 +105,9 @@ class PlaybackViewModel(
         // 心率獨立管線（Stream C）：bpm 直接顯示，safety 目前只用來偵測裝置斷線（見下方 imuConnected）
         viewModelScope.launch {
             engine.heartRate.collect { heartState ->
-                _state.update { it.copy(heartRate = heartState.bpm ?: it.heartRate) }
+                _state.update {
+                    it.copy(heartRate = heartState.bpm.takeIf(Float::isFinite)?.roundToInt() ?: it.heartRate)
+                }
                 if (wasImuConnected && !heartState.imuConnected) {
                     _state.update { it.copy(alertMessage = "手環裝置已斷線，請重新連線") }
                 }
