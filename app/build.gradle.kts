@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.glide.compose)
     implementation(libs.material.icons.core)
+    implementation(libs.material.icons.extended)
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.okhttp)

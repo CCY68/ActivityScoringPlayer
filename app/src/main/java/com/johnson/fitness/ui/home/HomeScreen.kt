@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
@@ -48,6 +49,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
+import com.fitness.device.model.ConnectionState
+import com.johnson.fitness.FitnessApp
 import com.johnson.fitness.model.Movie
 import com.johnson.fitness.ui.common.isCompactWidth
 import com.johnson.fitness.ui.common.touchClickable
@@ -62,6 +65,8 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val deviceManager = (context.applicationContext as FitnessApp).deviceManager
+    val connectionState by deviceManager.connectionState.collectAsStateWithLifecycle()
 
     LaunchedEffect(viewModel) {
         viewModel.effect.collect { effect ->
@@ -107,7 +112,7 @@ fun HomeScreen(
             ) {
                 // Top bar
                 item {
-                    TopBar()
+                    TopBar(isBluetoothConnected = connectionState is ConnectionState.Connected)
                 }
                 // Category rails
                 items(state.categories) { category ->
@@ -218,13 +223,13 @@ private fun NavItem(label: String, isActive: Boolean = false, compact: Boolean =
 }
 
 @Composable
-private fun TopBar() {
+private fun TopBar(isBluetoothConnected: Boolean) {
     val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = horizontalPadding, end = horizontalPadding, top = 40.dp, bottom = 28.dp),
-        verticalAlignment = Alignment.Bottom,
+        verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Column {
@@ -244,6 +249,12 @@ private fun TopBar() {
                 letterSpacing = (-0.5).sp
             )
         }
+        Icon(
+            imageVector = Icons.Default.Bluetooth,
+            contentDescription = if (isBluetoothConnected) "藍牙已連線" else "藍牙未連線",
+            tint = if (isBluetoothConnected) JohnsonColors.Blue500 else JohnsonColors.TextTertiary,
+            modifier = Modifier.size(24.dp)
+        )
     }
 }
 
