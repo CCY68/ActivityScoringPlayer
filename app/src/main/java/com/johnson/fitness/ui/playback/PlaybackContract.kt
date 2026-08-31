@@ -1,5 +1,6 @@
 package com.johnson.fitness.ui.playback
 
+import android.net.Uri
 import com.johnson.fitness.model.Movie
 
 enum class MafLoadStatus {
@@ -7,6 +8,17 @@ enum class MafLoadStatus {
     READY,
     FAILED,
     PLAY_WITHOUT_SCORING
+}
+
+enum class ImuDataSource {
+    NOT_SELECTED,
+    LIVE_B20,
+    CSV
+}
+
+sealed class PlaybackLaunchConfig {
+    data class LiveB20(val recordCsv: Boolean) : PlaybackLaunchConfig()
+    data class ReplayCsv(val uri: Uri, val displayName: String?) : PlaybackLaunchConfig()
 }
 
 data class PlaybackState(
@@ -46,7 +58,13 @@ data class PlaybackState(
     val feedbackDelta: String? = null,
     val videoPositionMs: Long = 0L,
     val videoDurationMs: Long = 0L,
-    val isPlaying: Boolean = true,
+    val isPlaying: Boolean = false,
+    val imuDataSource: ImuDataSource = ImuDataSource.NOT_SELECTED,
+    val selectedCsvName: String? = null,
+    val csvSampleCount: Int = 0,
+    val isRecordingImu: Boolean = false,
+    val recordingFileName: String? = null,
+    val completedRecordingFileName: String? = null,
 )
 
 sealed class PlaybackIntent {
@@ -55,10 +73,19 @@ sealed class PlaybackIntent {
     data class VideoStateChanged(
         val positionMs: Long,
         val durationMs: Long,
-        val isPlaying: Boolean
+        val isPlaying: Boolean,
+        val elapsedRealtimeMs: Long,
+        val playbackSpeed: Float,
+        val hasEnded: Boolean
     ) : PlaybackIntent()
+    data class VideoClockTick(val elapsedRealtimeMs: Long) : PlaybackIntent()
     object DismissAlert : PlaybackIntent()
     object StopScoring : PlaybackIntent()
+    data class UseLiveB20(val recordCsv: Boolean) : PlaybackIntent()
+    data class CsvSelected(val uri: Uri, val displayName: String?) : PlaybackIntent()
+    object StartImuRecording : PlaybackIntent()
+    object StopImuRecording : PlaybackIntent()
+    object DismissRecordingComplete : PlaybackIntent()
     // 手機沒有遙控器，播放列的進度條要能手動拖曳 seek；
     // 這裡同時把評分引擎的「裝置時間 -> 影片時間」換算基準重新校正，
     // 否則 seek 之後 IMU/心率樣本仍會照舊 offset 換算，對到錯誤的影片時間點。
@@ -67,4 +94,5 @@ sealed class PlaybackIntent {
 
 sealed class PlaybackEffect {
     object NavigateBack : PlaybackEffect()
+    data class ShowToast(val message: String) : PlaybackEffect()
 }

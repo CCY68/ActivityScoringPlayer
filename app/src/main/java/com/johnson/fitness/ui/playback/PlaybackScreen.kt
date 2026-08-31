@@ -3,6 +3,8 @@
 package com.johnson.fitness.ui.playback
 
 import android.net.Uri
+import android.os.SystemClock
+import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -59,6 +61,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
@@ -81,8 +84,9 @@ import androidx.compose.ui.tooling.preview.Preview
 @Composable
 fun PlaybackScreen(
     movieId: Long,
+    launchConfig: PlaybackLaunchConfig,
     onBack: () -> Unit,
-    viewModel: PlaybackViewModel = viewModel(key = "playback_$movieId") {
+    viewModel: PlaybackViewModel = viewModel(key = "playback_${movieId}_${launchConfig.hashCode()}") {
         val app = checkNotNull(this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY]) as FitnessApp
         PlaybackViewModel(movieId, app.scoringEngineFactory, app.deviceManager, app, app.lastDevicePreferences)
     }
@@ -90,10 +94,21 @@ fun PlaybackScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
+    LaunchedEffect(viewModel, launchConfig) {
+        when (launchConfig) {
+            is PlaybackLaunchConfig.LiveB20 ->
+                viewModel.onIntent(PlaybackIntent.UseLiveB20(launchConfig.recordCsv))
+            is PlaybackLaunchConfig.ReplayCsv ->
+                viewModel.onIntent(PlaybackIntent.CsvSelected(launchConfig.uri, launchConfig.displayName))
+        }
+    }
+
     LaunchedEffect(viewModel) {
         viewModel.effect.collect { effect ->
             when (effect) {
                 is PlaybackEffect.NavigateBack -> onBack()
+                is PlaybackEffect.ShowToast ->
+                    Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -116,7 +131,7 @@ fun PlaybackScreen(
     }
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply { playWhenReady = true }
+        ExoPlayer.Builder(context).build().apply { playWhenReady = false }
     }
 
     LaunchedEffect(state.movie) {
@@ -126,16 +141,32 @@ fun PlaybackScreen(
         }
     }
 
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                viewModel.onIntent(
+                    PlaybackIntent.VideoStateChanged(
+                        positionMs = player.currentPosition,
+                        durationMs = player.duration.coerceAtLeast(0L),
+                        isPlaying = player.isPlaying,
+                        elapsedRealtimeMs = SystemClock.elapsedRealtime(),
+                        playbackSpeed = player.playbackParameters.speed,
+                        hasEnded = player.playbackState == Player.STATE_ENDED
+                    )
+                )
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose { exoPlayer.removeListener(listener) }
+    }
+
+    // UI 進度只推進單調時鐘；播放器位置的同步基準由上方 Player.Listener 事件提供。
     LaunchedEffect(exoPlayer) {
         while (true) {
             viewModel.onIntent(
-                PlaybackIntent.VideoStateChanged(
-                    positionMs = exoPlayer.currentPosition,
-                    durationMs = exoPlayer.duration.coerceAtLeast(0L),
-                    isPlaying  = exoPlayer.isPlaying
-                )
+                PlaybackIntent.VideoClockTick(SystemClock.elapsedRealtime())
             )
-            delay(500)
+            delay(100)
         }
     }
 
@@ -222,6 +253,18 @@ fun PlaybackScreen(
                 )
                 CloseButton { viewModel.onIntent(PlaybackIntent.BackPressed) }
             }
+        }
+
+        // 自動收錄模式只能由播放前選擇啟用，結束點固定為影片播完後 3 秒。
+        if (state.isRecordingImu) {
+            Text(
+                text = "● CSV 收錄中",
+                color = JohnsonColors.Brand,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(start = horizontalPadding)
+            )
         }
 
         // 5. Feedback toast (center-left, 2 s 後自動消失)
@@ -343,7 +386,45 @@ fun PlaybackScreen(
                 )
             }
         }
+
+        state.completedRecordingFileName?.let { fileName ->
+            RecordingCompleteDialog(
+                fileName = fileName,
+                onConfirm = { viewModel.onIntent(PlaybackIntent.DismissRecordingComplete) }
+            )
+        }
     }
+}
+
+@Composable
+private fun RecordingCompleteDialog(fileName: String, onConfirm: () -> Unit) {
+    MaterialAlertDialog(
+        onDismissRequest = {},
+        title = { Text("收錄完成", color = JohnsonColors.Gray0) },
+        text = {
+            Text(
+                "B20 IMU 已完成收錄：\n$fileName",
+                color = JohnsonColors.Gray100
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                modifier = Modifier.touchClickable(onClick = onConfirm),
+                colors = ButtonDefaults.colors(
+                    containerColor = JohnsonColors.Red500,
+                    contentColor = JohnsonColors.Gray0,
+                    focusedContainerColor = JohnsonColors.Red400,
+                    focusedContentColor = JohnsonColors.Gray0
+                )
+            ) {
+                Text("確定", color = JohnsonColors.Gray0)
+            }
+        },
+        containerColor = JohnsonColors.Ink600,
+        titleContentColor = JohnsonColors.Gray0,
+        textContentColor = JohnsonColors.Gray100
+    )
 }
 
 @Composable

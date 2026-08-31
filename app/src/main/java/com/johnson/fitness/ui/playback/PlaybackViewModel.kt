@@ -16,6 +16,8 @@ import com.johnson.fitness.data.DeviceAutoConnect
 import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.MovieRepository
 import com.johnson.fitness.data.ScoringEngineFactory
+import com.johnson.fitness.data.ImuCsvStore
+import com.fitness.activityscoringcore.signal.RawImuSample
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
@@ -46,9 +48,27 @@ class PlaybackViewModel(
 
     private val engine: ScoringEngine = engineFactory.create()
     private val motionAdapter = MotionDataAdapter(deviceManager)
+    private val imuCsvStore = ImuCsvStore(appContext, deviceManager) { elapsedRealtimeMs ->
+        estimateVideoPositionMs(elapsedRealtimeMs).takeIf { videoIsPlaying }
+    }
+    private var csvSamples: List<RawImuSample> = emptyList()
+    private var csvReplayIndex = 0
 
     @Volatile private var videoPositionMs = 0L
     @Volatile private var videoIsPlaying = false
+    @Volatile private var videoClockAnchorPositionMs = 0L
+    @Volatile private var videoClockAnchorElapsedRealtimeMs = 0L
+    @Volatile private var videoPlaybackSpeed = 1f
+
+    private fun estimateVideoPositionMs(elapsedRealtimeMs: Long): Long {
+        if (!videoIsPlaying || videoClockAnchorElapsedRealtimeMs == 0L) {
+            return videoClockAnchorPositionMs
+        }
+        val elapsedMs = (elapsedRealtimeMs - videoClockAnchorElapsedRealtimeMs).coerceAtLeast(0L)
+        return (videoClockAnchorPositionMs + elapsedMs * videoPlaybackSpeed)
+            .toLong()
+            .coerceAtLeast(0L)
+    }
 
     // 心率回調沒有時間戳，影片第一次開始播放時記錄 wall clock 與影片時間的差值供它換算。
     @Volatile private var videoTimeOffsetMs: Long? = null
@@ -70,6 +90,9 @@ class PlaybackViewModel(
     private var feedbackDismissJob: Job? = null
     private var mafLoadJob: Job? = null
     private var deviceBridgeJob: Job? = null
+    private var csvReplayJob: Job? = null
+    private var seekJob: Job? = null
+    private var recordingAutoStopJob: Job? = null
     private var receivedImuSampleCount = 0L
 
     // ActivityScoringCore 已不提供聚合總分（ADR 0011：三面向永遠分開），課程結束時顯示的「最終分數」
@@ -243,6 +266,49 @@ class PlaybackViewModel(
         }
     }
 
+    /** 以播放器為主時鐘，在每列 CSV 的 timestamp_ms（影片時間）原樣送出六軸值。 */
+    private fun startCsvReplay() {
+        if (csvReplayJob?.isActive == true) return
+        if (csvSamples.isEmpty()) return
+        if (csvReplayIndex >= csvSamples.size) return
+        csvReplayJob = viewModelScope.launch {
+            while (csvReplayIndex < csvSamples.size) {
+                if (!videoIsPlaying) {
+                    delay(CSV_CLOCK_CHECK_INTERVAL_MS)
+                    continue
+                }
+                val playerPositionMs = estimateVideoPositionMs(android.os.SystemClock.elapsedRealtime())
+                val sample = csvSamples[csvReplayIndex]
+                if (playerPositionMs < sample.timestampMs) {
+                    delay(
+                        (sample.timestampMs - playerPositionMs)
+                            .coerceIn(CSV_CLOCK_CHECK_INTERVAL_MS, IMU_SAMPLE_INTERVAL_MS)
+                    )
+                    continue
+                }
+
+                // timestamp_ms 同時是 Replay 排程時間與 Core 使用的影片時間。
+                engine.submitImuSample(sample.copy(packetId = csvReplayIndex.toLong()))
+                csvReplayIndex++
+                receivedImuSampleCount++
+                // Replay 模式逐筆更新，讓 Seek 往回後是否重新送出可直接從畫面確認。
+                _state.update { it.copy(imuSampleCount = receivedImuSampleCount) }
+            }
+            _state.update { it.copy(scoringStatus = "CSV 資料已播放完畢") }
+        }
+    }
+
+    /** 回傳第一筆 timestamp_ms（影片時間）>= positionMs 的索引。 */
+    private fun findCsvIndexAtOrAfter(positionMs: Long): Int {
+        var low = 0
+        var high = csvSamples.size
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (csvSamples[mid].timestampMs < positionMs) low = mid + 1 else high = mid
+        }
+        return low
+    }
+
     private fun describeScoringStatus(scores: List<Score>): String {
         if (scores.any { it.availability == Availability.AVAILABLE }) return "Core 評分中"
         if (scores.any { it.availability == Availability.WARMING_UP }) return "Core 暖機中"
@@ -383,8 +449,11 @@ class PlaybackViewModel(
             }
             is PlaybackIntent.VideoStateChanged -> {
                 val wasPlaying = videoIsPlaying
-                videoPositionMs = intent.positionMs
+                videoClockAnchorPositionMs = intent.positionMs
+                videoClockAnchorElapsedRealtimeMs = intent.elapsedRealtimeMs
+                videoPlaybackSpeed = intent.playbackSpeed
                 videoIsPlaying = intent.isPlaying
+                videoPositionMs = intent.positionMs
                 _state.update {
                     it.copy(
                         videoPositionMs = intent.positionMs,
@@ -393,17 +462,59 @@ class PlaybackViewModel(
                     )
                 }
 
+                if (intent.hasEnded && _state.value.isRecordingImu && recordingAutoStopJob?.isActive != true) {
+                    recordingAutoStopJob = viewModelScope.launch {
+                        delay(RECORDING_TAIL_DURATION_MS)
+                        val fileName = _state.value.recordingFileName
+                        val result = withContext(Dispatchers.IO) { imuCsvStore.stopRecording() }
+                        result.onSuccess {
+                            _state.update {
+                                it.copy(
+                                    isRecordingImu = false,
+                                    recordingFileName = null,
+                                    completedRecordingFileName = fileName,
+                                    alertMessage = null
+                                )
+                            }
+                        }.onFailure { error ->
+                            _state.update { it.copy(alertMessage = "自動停止收錄失敗：${error.message}") }
+                        }
+                    }
+                }
+
                 if (_state.value.isScoring && videoTimeOffsetMs == null && intent.isPlaying) {
                     // 影片首次開始播放：建立「裝置 epoch time -> videoTimeMs」的換算基準
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
-                    startDeviceBridge()
-                    viewModelScope.launch { engine.start(intent.positionMs) }
+                    viewModelScope.launch {
+                        engine.start(intent.positionMs)
+                        when (_state.value.imuDataSource) {
+                            ImuDataSource.LIVE_B20 -> startDeviceBridge()
+                            ImuDataSource.CSV -> startCsvReplay()
+                            ImuDataSource.NOT_SELECTED -> Unit
+                        }
+                    }
                 } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
                     lastStableImuVideoTimeMs = null
-                    viewModelScope.launch { engine.resume() }
+                    viewModelScope.launch {
+                        engine.resume()
+                        if (_state.value.imuDataSource == ImuDataSource.CSV) startCsvReplay()
+                    }
                 } else if (_state.value.isScoring && wasPlaying && !intent.isPlaying) {
                     lastStableImuVideoTimeMs = null
+                    csvReplayJob?.cancel()
+                    csvReplayJob = null
                     viewModelScope.launch { engine.pause() }
+                }
+            }
+            is PlaybackIntent.VideoClockTick -> {
+                val estimatedPositionMs = estimateVideoPositionMs(intent.elapsedRealtimeMs)
+                videoPositionMs = estimatedPositionMs
+                _state.update { state ->
+                    state.copy(
+                        videoPositionMs = estimatedPositionMs.coerceAtMost(
+                            state.videoDurationMs.takeIf { it > 0L } ?: Long.MAX_VALUE
+                        )
+                    )
                 }
             }
             is PlaybackIntent.DismissAlert -> {
@@ -412,8 +523,12 @@ class PlaybackViewModel(
             is PlaybackIntent.StopScoring -> {
                 viewModelScope.launch {
                     if (_state.value.isScoring) {
+                        seekJob?.cancel()
+                        seekJob = null
                         deviceBridgeJob?.cancel()
                         deviceBridgeJob = null
+                        csvReplayJob?.cancel()
+                        csvReplayJob = null
                         engine.stop()
                         val finalScore = listOf(tempoAcc, trajectoryAcc, segmentSimilarityAcc)
                             .filter { it.hasData }
@@ -435,20 +550,112 @@ class PlaybackViewModel(
                 }
             }
             is PlaybackIntent.BackPressed -> {
-                viewModelScope.launch { _effect.send(PlaybackEffect.NavigateBack) }
+                viewModelScope.launch {
+                    seekJob?.cancel()
+                    recordingAutoStopJob?.cancel()
+                    withContext(Dispatchers.IO) { imuCsvStore.stopRecording() }
+                    _effect.send(PlaybackEffect.NavigateBack)
+                }
             }
             is PlaybackIntent.Seek -> {
                 videoPositionMs = intent.positionMs
+                videoClockAnchorPositionMs = intent.positionMs
+                videoClockAnchorElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
                 lastStableImuVideoTimeMs = null
+                if (_state.value.imuDataSource == ImuDataSource.CSV) {
+                    csvReplayJob?.cancel()
+                    csvReplayJob = null
+                    csvReplayIndex = findCsvIndexAtOrAfter(intent.positionMs)
+                }
                 _state.update { it.copy(videoPositionMs = intent.positionMs) }
                 // 只有已經建立過換算基準（影片已開始播放過）才需要重新校正；
                 // 還沒開始播放就不會有這個 offset，維持 null 讓它在真正開始播放時正常建立。
                 videoTimeOffsetMs?.let {
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
                     if (_state.value.isScoring) {
-                        viewModelScope.launch { engine.seek(intent.positionMs) }
+                        // 進度條拖曳會密集送出 Seek；只處理使用者停止移動後的最後位置，
+                        // 避免數十個 engine.seek() 排隊讓 CSV Replay 長時間無法恢復。
+                        seekJob?.cancel()
+                        seekJob = viewModelScope.launch {
+                            delay(SEEK_DEBOUNCE_MS)
+                            engine.seek(intent.positionMs)
+                            if (_state.value.imuDataSource == ImuDataSource.CSV && videoIsPlaying) {
+                                startCsvReplay()
+                            }
+                        }
                     }
                 }
+            }
+            is PlaybackIntent.UseLiveB20 -> {
+                csvSamples = emptyList()
+                csvReplayIndex = 0
+                _state.update {
+                    it.copy(
+                        imuDataSource = ImuDataSource.LIVE_B20,
+                        selectedCsvName = null,
+                        csvSampleCount = 0,
+                        isPlaying = false
+                    )
+                }
+                if (intent.recordCsv) onIntent(PlaybackIntent.StartImuRecording)
+            }
+            is PlaybackIntent.CsvSelected -> {
+                viewModelScope.launch {
+                    val result = withContext(Dispatchers.IO) { runCatching { imuCsvStore.read(intent.uri) } }
+                    result.onSuccess { samples ->
+                        csvSamples = samples
+                        csvReplayIndex = 0
+                        _state.update {
+                            it.copy(
+                                imuDataSource = ImuDataSource.CSV,
+                                selectedCsvName = intent.displayName ?: intent.uri.lastPathSegment,
+                                csvSampleCount = samples.size,
+                                isPlaying = false,
+                                alertMessage = null,
+                                deviceStatus = "CSV 25 Hz"
+                            )
+                        }
+                    }.onFailure { error ->
+                        _state.update { it.copy(alertMessage = "CSV 讀取失敗：${error.message}") }
+                    }
+                }
+            }
+            is PlaybackIntent.StartImuRecording -> {
+                viewModelScope.launch {
+                    val result = withContext(Dispatchers.IO) { imuCsvStore.startRecording() }
+                    result.onSuccess { fileName ->
+                        _state.update {
+                            it.copy(
+                                isRecordingImu = true,
+                                recordingFileName = fileName,
+                                alertMessage = null
+                            )
+                        }
+                        _effect.send(PlaybackEffect.ShowToast("已開始收錄"))
+                    }.onFailure { error ->
+                        _state.update { it.copy(alertMessage = "無法開始收錄：${error.message}") }
+                    }
+                }
+            }
+            is PlaybackIntent.StopImuRecording -> {
+                viewModelScope.launch {
+                    val fileName = _state.value.recordingFileName
+                    val result = withContext(Dispatchers.IO) { imuCsvStore.stopRecording() }
+                    result.onSuccess {
+                        _state.update {
+                            it.copy(
+                                isRecordingImu = false,
+                                recordingFileName = null,
+                                alertMessage = fileName?.let { name -> "收錄完成：$name" }
+                            )
+                        }
+                    }.onFailure { error ->
+                        _state.update { it.copy(alertMessage = "停止收錄失敗：${error.message}") }
+                    }
+                }
+            }
+            is PlaybackIntent.DismissRecordingComplete -> {
+                _state.update { it.copy(completedRecordingFileName = null) }
             }
         }
     }
@@ -465,11 +672,18 @@ class PlaybackViewModel(
     override fun onCleared() {
         super.onCleared()
         deviceBridgeJob?.cancel()
+        csvReplayJob?.cancel()
+        seekJob?.cancel()
+        recordingAutoStopJob?.cancel()
+        imuCsvStore.stopRecording()
         engine.release()
     }
 
     private companion object {
         const val IMU_SAMPLE_INTERVAL_MS = 40L
+        const val CSV_CLOCK_CHECK_INTERVAL_MS = 5L
+        const val RECORDING_TAIL_DURATION_MS = 3_000L
+        const val SEEK_DEBOUNCE_MS = 120L
         const val ASPECT_LOG_TAG = "ScoringAspect"
     }
 }

@@ -2,7 +2,10 @@
 
 package com.johnson.fitness.ui.detail
 
+import android.provider.OpenableColumns
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -21,7 +24,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.material3.AlertDialog as MaterialAlertDialog
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -34,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
@@ -43,22 +50,38 @@ import androidx.compose.foundation.layout.widthIn
 import com.johnson.fitness.model.Movie
 import com.johnson.fitness.ui.common.isCompactWidth
 import com.johnson.fitness.ui.common.touchClickable
+import com.johnson.fitness.ui.playback.PlaybackLaunchConfig
+import com.johnson.fitness.ui.theme.JohnsonColors
 
 @Composable
 fun DetailScreen(
     movieId: Long,
-    onWatchTrailer: () -> Unit,
+    onWatchTrailer: (PlaybackLaunchConfig) -> Unit,
     onRelatedMovieClick: (Long) -> Unit,
     onBack: () -> Unit,
     viewModel: DetailViewModel = viewModel { DetailViewModel(movieId) }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var showSourceDialog by remember { mutableStateOf(false) }
+    var showB20RecordingDialog by remember { mutableStateOf(false) }
+    val csvPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri ?: return@rememberLauncherForActivityResult
+        val displayName = context.contentResolver.query(
+            uri,
+            arrayOf(OpenableColumns.DISPLAY_NAME),
+            null,
+            null,
+            null
+        )?.use { cursor -> cursor.takeIf { it.moveToFirst() }?.getString(0) }
+        showSourceDialog = false
+        onWatchTrailer(PlaybackLaunchConfig.ReplayCsv(uri, displayName))
+    }
 
     LaunchedEffect(viewModel) {
         viewModel.effect.collect { effect ->
             when (effect) {
-                is DetailEffect.NavigateToPlayback -> onWatchTrailer()
+                is DetailEffect.NavigateToPlayback -> showSourceDialog = true
                 is DetailEffect.NavigateToDetail -> onRelatedMovieClick(effect.movieId)
                 is DetailEffect.ShowToast -> Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
             }
@@ -127,8 +150,148 @@ fun DetailScreen(
                 }
             }
         }
+
+        if (showSourceDialog) {
+            PlaybackModeDialog(
+                onUseLiveB20 = {
+                    showSourceDialog = false
+                    showB20RecordingDialog = true
+                },
+                onSelectCsv = {
+                    csvPicker.launch(arrayOf("text/csv", "text/comma-separated-values", "text/plain"))
+                },
+                onCancel = { showSourceDialog = false }
+            )
+        }
+
+        if (showB20RecordingDialog) {
+            B20RecordingDialog(
+                onRecord = {
+                    showB20RecordingDialog = false
+                    onWatchTrailer(PlaybackLaunchConfig.LiveB20(recordCsv = true))
+                },
+                onDoNotRecord = {
+                    showB20RecordingDialog = false
+                    onWatchTrailer(PlaybackLaunchConfig.LiveB20(recordCsv = false))
+                },
+                onBack = {
+                    showB20RecordingDialog = false
+                    showSourceDialog = true
+                }
+            )
+        }
     }
 }
+
+@Composable
+private fun PlaybackModeDialog(
+    onUseLiveB20: () -> Unit,
+    onSelectCsv: () -> Unit,
+    onCancel: () -> Unit
+) {
+    MaterialAlertDialog(
+        onDismissRequest = {},
+        title = { Text("選擇播放模式", color = JohnsonColors.Gray0) },
+        text = {
+            Text(
+                "進入影片前，請選擇正常 B20 模式或 Replay CSV 測試模式。",
+                color = JohnsonColors.Gray100
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onUseLiveB20,
+                modifier = Modifier.touchClickable(onClick = onUseLiveB20),
+                colors = dialogPrimaryButtonColors()
+            ) {
+                Text("正常模式（B20）", color = JohnsonColors.Gray0)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onSelectCsv,
+                    modifier = Modifier.touchClickable(onClick = onSelectCsv),
+                    colors = dialogSecondaryButtonColors()
+                ) {
+                    Text("Replay CSV", color = JohnsonColors.Gray0)
+                }
+                Button(
+                    onClick = onCancel,
+                    modifier = Modifier.touchClickable(onClick = onCancel),
+                    colors = dialogSecondaryButtonColors()
+                ) {
+                    Text("取消", color = JohnsonColors.Gray0)
+                }
+            }
+        },
+        containerColor = JohnsonColors.Ink600,
+        titleContentColor = JohnsonColors.Gray0,
+        textContentColor = JohnsonColors.Gray100
+    )
+}
+
+@Composable
+private fun B20RecordingDialog(
+    onRecord: () -> Unit,
+    onDoNotRecord: () -> Unit,
+    onBack: () -> Unit
+) {
+    MaterialAlertDialog(
+        onDismissRequest = {},
+        title = { Text("是否收錄 B20 IMU？", color = JohnsonColors.Gray0) },
+        text = {
+            Text(
+                "收錄會在進入播放頁時開始，影片播完 3 秒後自動完成 CSV。",
+                color = JohnsonColors.Gray100
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onRecord,
+                modifier = Modifier.touchClickable(onClick = onRecord),
+                colors = dialogPrimaryButtonColors()
+            ) {
+                Text("收錄 CSV", color = JohnsonColors.Gray0)
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = onDoNotRecord,
+                    modifier = Modifier.touchClickable(onClick = onDoNotRecord),
+                    colors = dialogSecondaryButtonColors()
+                ) { Text("不收錄", color = JohnsonColors.Gray0) }
+                Button(
+                    onClick = onBack,
+                    modifier = Modifier.touchClickable(onClick = onBack),
+                    colors = dialogSecondaryButtonColors()
+                ) {
+                    Text("返回", color = JohnsonColors.Gray0)
+                }
+            }
+        },
+        containerColor = JohnsonColors.Ink600,
+        titleContentColor = JohnsonColors.Gray0,
+        textContentColor = JohnsonColors.Gray100
+    )
+}
+
+@Composable
+private fun dialogPrimaryButtonColors() = ButtonDefaults.colors(
+    containerColor = JohnsonColors.Red500,
+    contentColor = JohnsonColors.Gray0,
+    focusedContainerColor = JohnsonColors.Red400,
+    focusedContentColor = JohnsonColors.Gray0
+)
+
+@Composable
+private fun dialogSecondaryButtonColors() = ButtonDefaults.colors(
+    containerColor = JohnsonColors.Ink400,
+    contentColor = JohnsonColors.Gray0,
+    focusedContainerColor = JohnsonColors.Ink500,
+    focusedContentColor = JohnsonColors.Gray0
+)
 
 @Composable
 private fun RelatedMovieCard(movie: Movie, onClick: () -> Unit) {
