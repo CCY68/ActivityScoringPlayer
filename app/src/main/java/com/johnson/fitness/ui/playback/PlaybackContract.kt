@@ -33,6 +33,8 @@ data class PlaybackState(
     val accuracy: Int = 0,
     // 目前三面向的即時平均，0–100，不累加。
     val gameScore: Int = 0,
+    // Core 有回分數但 confidence 低於顯示門檻（靜止／訊號無週期結構）：UI 顯示「等待動作」而非 0 分（決策 A1）
+    val awaitingMotion: Boolean = false,
     val combo: Int = 1,
     // 當下三個即時面向；null 代表此面向在目前區段尚無有效分數，UI 顯示「－」。
     val currentAspectScores: Map<String, Int?> = mapOf(
@@ -49,6 +51,8 @@ data class PlaybackState(
     val heartRate: Int = 0,
     val grade: String = "",
     val finalScore: Int? = null,
+    // 整堂課沒有任何可顯示分數（Core 全程低 confidence）：成果卡顯示「無有效評分」而非 0 分／D 級（決策 A1）
+    val finalNoValidScore: Boolean = false,
     // 三個評分面向（節奏/軌跡/片段相似度）各自的課程平均分數，key = 顯示標籤；
     // ActivityScoringCore 已不提供聚合總分/多演算法比較（ADR 0011），此處為 App 端自行計算的平均值
     val aspectScores: Map<String, Int> = emptyMap(),
