@@ -21,6 +21,22 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
   ../ActivityScoringPlayer/app/libs/activity-scoring-core.aar
 ```
 
+### 目前內建的 AAR 版本
+
+| 日期 | Core commit | 大小 | 備註 |
+|---|---|---|---|
+| 2026-09-09 | `ae7fdaf`（main） | 368,308 bytes | 評分修復 PR-C1/C1b/C2：靜止＝0 分、互補濾波重力追蹤、形狀通道循環鎖定；`Score.confidence` 語意見下 |
+
+### 顯示層對 `Score.confidence` 的處理（PR-P1，決策 A1／A3）
+
+Core 1.1 起**靜止或訊號沒有週期結構時，不再回暖機分數，而是誠實回 `AVAILABLE` ＋ 低 `value` ＋ `confidence ≈ 0`**。
+Player 顯示層（`PlaybackViewModel`）因此只採用 `availability == AVAILABLE && confidence >= 0.3` 的面向：
+
+- 即時總分／各面向數字／課程最終平均都只納入合格面向；不合格面向顯示「－」。
+- Core 有回分數但沒有任何合格面向 → HUD 顯示「等待動作」（`awaitingMotion`），不是 0 分。
+- 整堂課都沒有合格分數 → 成果卡顯示「無有效評分」，不給 D 級。
+- 「順序」（片段相似度）面向依決策 A3 延後，HUD 與成果卡皆不顯示；決策依據見 Core `docs/評分修復更新計畫_v1_20260907.md`。
+
 ## 2. App 目前怎麼用它（實際呼叫路徑）
 
 App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` 提供的 `ScoringEngine.loadMaf(...)` 間接使用：

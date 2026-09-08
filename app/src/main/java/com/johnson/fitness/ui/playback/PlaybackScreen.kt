@@ -305,6 +305,7 @@ fun PlaybackScreen(
             ) {
                 ScoreCard(
                     gameScore = state.gameScore,
+                    awaitingMotion = state.awaitingMotion,
                     aspectScores = state.currentAspectScores,
                     aspectDiagnostics = state.currentAspectDiagnostics,
                     deviceStatus = state.deviceStatus,
@@ -314,6 +315,7 @@ fun PlaybackScreen(
                 HeartRateCard(heartRate = state.heartRate)
                 AccuracyCard(
                     accuracy = state.accuracy,
+                    awaitingMotion = state.awaitingMotion,
                     aspectScores = state.currentAspectScores,
                     onStop   = { viewModel.onIntent(PlaybackIntent.StopScoring) }
                 )
@@ -392,6 +394,7 @@ fun PlaybackScreen(
                 FinalScoreCard(
                     score          = score,
                     grade          = state.grade,
+                    noValidScore   = state.finalNoValidScore,
                     aspectScores   = state.aspectScores,
                     durationMs     = state.exerciseDurationMs,
                     caloriesBurned = state.caloriesBurned,
@@ -614,6 +617,7 @@ private fun HudCard(content: @Composable ColumnScope.() -> Unit) {
 @Composable
 private fun ScoreCard(
     gameScore: Int,
+    awaitingMotion: Boolean = false,
     aspectScores: Map<String, Int?>,
     aspectDiagnostics: Map<String, String>,
     deviceStatus: String,
@@ -630,7 +634,7 @@ private fun ScoreCard(
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = gameScore.toString(),
+            text = if (awaitingMotion) "等待動作" else gameScore.toString(),
             color = JohnsonColors.AccentScore,
             fontSize = 34.sp,
             fontWeight = FontWeight.Bold,
@@ -652,7 +656,7 @@ private fun ScoreCard(
             lineHeight = 11.sp
         )
         Spacer(Modifier.height(5.dp))
-        listOf("節奏", "軌跡", "順序").forEach { name ->
+        listOf("節奏", "軌跡").forEach { name ->   // 順序面向依決策 A3 延後，不顯示
             Text(
                 text = "$name ${aspectDiagnostics[name] ?: "－"}",
                 color = if (aspectScores[name] == null) JohnsonColors.TextTertiary else JohnsonColors.Lime300,
@@ -740,6 +744,7 @@ private fun HrZoneBars(activeZone: Int) {
 @Composable
 private fun AccuracyCard(
     accuracy: Int,
+    awaitingMotion: Boolean = false,
     aspectScores: Map<String, Int?>,
     onStop: () -> Unit
 ) {
@@ -759,7 +764,7 @@ private fun AccuracyCard(
                         useCenter  = false,
                         style      = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
                     )
-                    if (accuracy > 0) {
+                    if (accuracy > 0 && !awaitingMotion) {
                         drawArc(
                             color      = JohnsonColors.AccentScore,
                             startAngle = 135f,
@@ -771,14 +776,14 @@ private fun AccuracyCard(
                 }
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
-                        text       = accuracy.toString(),
+                        text       = if (awaitingMotion) "－" else accuracy.toString(),
                         color      = JohnsonColors.TextPrimary,
                         fontSize   = 18.sp,
                         fontWeight = FontWeight.Bold,
                         lineHeight = 22.sp
                     )
                     Text(
-                        text     = " %",
+                        text     = if (awaitingMotion) "" else " %",
                         color    = JohnsonColors.TextTertiary,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(bottom = 2.dp)
@@ -831,7 +836,7 @@ private fun AspectScoresRow(scores: Map<String, Int?>) {
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        listOf("節奏", "軌跡", "順序").forEach { name ->
+        listOf("節奏", "軌跡").forEach { name ->   // 順序面向依決策 A3 延後，不顯示
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = name,
@@ -969,6 +974,7 @@ private fun AlertBanner(message: String, onDismiss: () -> Unit) {
 private fun FinalScoreCard(
     score: Int,
     grade: String,
+    noValidScore: Boolean = false,
     aspectScores: Map<String, Int>,
     durationMs: Long,
     caloriesBurned: Int?,
@@ -1010,13 +1016,13 @@ private fun FinalScoreCard(
             ) {
                 Text(
                     text       = grade,
-                    color      = gradeColor(score),
+                    color      = if (noValidScore) JohnsonColors.TextTertiary else gradeColor(score),
                     fontSize   = 80.sp,
                     fontWeight = FontWeight.Black,
                     lineHeight = 80.sp
                 )
                 Text(
-                    text       = "$score 分",
+                    text       = if (noValidScore) "無有效評分" else "$score 分",
                     color      = JohnsonColors.TextPrimary,
                     fontSize   = 32.sp,
                     fontWeight = FontWeight.Bold,

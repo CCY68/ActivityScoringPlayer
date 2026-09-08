@@ -32,6 +32,13 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+/** Core 分數要拿給使用者看的最低 confidence（評分修復更新計畫 §0-C、Player PR-P1） */
+private const val MIN_DISPLAY_CONFIDENCE = 0.3f
+
+/** 可拿給使用者看的分數：可用且 Core 對這筆分數有足夠信心（靜止／訊號無週期結構時 confidence ≈ 0）。 */
+private fun Score.isDisplayable(): Boolean =
+    availability == Availability.AVAILABLE && confidence >= MIN_DISPLAY_CONFIDENCE
+
 class PlaybackViewModel(
     val movieId: Long,
     private val engineFactory: ScoringEngineFactory,
@@ -104,7 +111,7 @@ class PlaybackViewModel(
         private var lastFeatureTimeMs: Long? = null
         fun add(score: Score) {
             val isNewWindow = score.eventTimeMs != lastEventTimeMs || score.featureTimeMs != lastFeatureTimeMs
-            if (score.availability == Availability.AVAILABLE && isNewWindow) {
+            if (score.isDisplayable() && isNewWindow) {
                 sum += score.value
                 count++
                 lastEventTimeMs = score.eventTimeMs
@@ -197,15 +204,17 @@ class PlaybackViewModel(
                     trajectoryAcc.add(trajectory)
                     segmentSimilarityAcc.add(segmentSimilarity)
 
-                    val available = scores
-                        .filter { it.availability == Availability.AVAILABLE }
-                    val displayScore = available
+                    // 只平均「可顯示」的面向：AVAILABLE 且 confidence ≥ MIN_DISPLAY_CONFIDENCE。
+                    // Core v1.1 起靜止時會誠實回 AVAILABLE + 低分 + confidence ≈ 0（決策 A1），
+                    // 只看 availability 會把「等待動作」顯示成 0 分。沒有可顯示面向時為 null，不再退回 0。
+                    val available = scores.filter { it.isDisplayable() }
+                    val displayScore: Int? = available
                         .takeIf { it.isNotEmpty() }
                         ?.map { it.value }
                         ?.average()
                         ?.roundToInt()
                         ?.coerceIn(0, 100)
-                        ?: 0
+                    val awaitingMotion = displayScore == null && scores.any { it.availability == Availability.AVAILABLE }
                     val currentAspects = mapOf(
                         "節奏" to tempo.availableValue(),
                         "軌跡" to trajectory.availableValue(),
@@ -217,7 +226,7 @@ class PlaybackViewModel(
                         "順序" to segmentSimilarity.diagnosticText()
                     )
                     logAspectDiagnosticsIfChanged(tempo, trajectory, segmentSimilarity)
-                    applyWindowScore(displayScore, currentAspects, diagnostics)
+                    applyWindowScore(displayScore, awaitingMotion, currentAspects, diagnostics)
                 }
         }
 
@@ -381,7 +390,8 @@ class PlaybackViewModel(
     }
 
     private fun describeScoringStatus(scores: List<Score>): String {
-        if (scores.any { it.availability == Availability.AVAILABLE }) return "Core 評分中"
+        if (scores.any { it.isDisplayable() }) return "Core 評分中"
+        if (scores.any { it.availability == Availability.AVAILABLE }) return "等待動作（訊號穩定、未偵測到動作）"
         if (scores.any { it.availability == Availability.WARMING_UP }) return "Core 暖機中"
         val reasons = scores.map { it.reason }.toSet()
         return when {
@@ -443,10 +453,11 @@ class PlaybackViewModel(
     }
 
     private fun Score.availableValue(): Int? =
-        takeIf { it.availability == Availability.AVAILABLE }
+        takeIf { it.isDisplayable() }
             ?.value
             ?.roundToInt()
             ?.coerceIn(0, 100)
+
 
     private fun Score.diagnosticText(): String {
         val availabilityText = when (availability) {
@@ -476,11 +487,13 @@ class PlaybackViewModel(
     }
 
     private fun applyWindowScore(
-        displayScore: Int,
+        displayScore: Int?,
+        awaitingMotion: Boolean,
         currentAspects: Map<String, Int?>,
         diagnostics: Map<String, String>
     ) {
         val label = when {
+            displayScore == null -> null
             displayScore >= 90 -> "動作完美！"
             displayScore >= 75 -> "動作標準！"
             displayScore >= 60 -> "繼續保持"
@@ -489,8 +502,9 @@ class PlaybackViewModel(
         }
         _state.update {
             it.copy(
-                accuracy      = displayScore,
-                gameScore     = displayScore,
+                accuracy      = displayScore ?: 0,
+                gameScore     = displayScore ?: 0,
+                awaitingMotion = awaitingMotion,
                 combo         = 1,
                 currentAspectScores = currentAspects,
                 currentAspectDiagnostics = diagnostics,
@@ -606,9 +620,11 @@ class PlaybackViewModel(
                         csvReplayJob = null
                         engine.stop()
                         endActiveSegment(android.os.SystemClock.elapsedRealtime())
-                        val finalScore = listOf(tempoAcc, trajectoryAcc, segmentSimilarityAcc)
-                            .filter { it.hasData }
-                            .let { accs -> if (accs.isEmpty()) 0 else accs.sumOf { it.average } / accs.size }
+                        // 整堂課都沒有可顯示分數（例如全程靜止、Core 只回低 confidence）時不折成 0 分／D 級，
+                        // 成果卡改顯示「無有效評分」（決策 A1）。
+                        val accs = listOf(tempoAcc, trajectoryAcc, segmentSimilarityAcc).filter { it.hasData }
+                        val hasValidScore = accs.isNotEmpty()
+                        val finalScore = if (hasValidScore) accs.sumOf { it.average } / accs.size else 0
                         val caloriesBurned = caloriesBaseline?.let { base ->
                             latestCalories?.let { latest -> (latest - base).coerceAtLeast(0) }
                         }
@@ -616,11 +632,12 @@ class PlaybackViewModel(
                             it.copy(
                                 isScoring    = false,
                                 finalScore   = finalScore,
-                                grade        = gradeLabel(finalScore),
+                                grade        = if (hasValidScore) gradeLabel(finalScore) else "－",
+                                finalNoValidScore = !hasValidScore,
+                                // 順序（片段相似度）面向依決策 A3 延後，成果卡不顯示；仍納入總平均
                                 aspectScores = buildMap {
                                     if (tempoAcc.hasData) put("節奏", tempoAcc.average)
                                     if (trajectoryAcc.hasData) put("軌跡", trajectoryAcc.average)
-                                    if (segmentSimilarityAcc.hasData) put("片段相似度", segmentSimilarityAcc.average)
                                 },
                                 exerciseDurationMs = activeElapsedAccumulatorMs,
                                 avgHeartRate = heartRateAcc.average,
