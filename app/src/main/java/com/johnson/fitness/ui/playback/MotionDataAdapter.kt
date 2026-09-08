@@ -56,12 +56,13 @@ class MotionDataAdapter(
         awaitClose { deviceManager.removeHealthDataListener(listener) }
     }
 
-    // HealthData.skinTemperatureC 是體表/手臂溫度（B20「0x05 實時數據 V2」temperature 欄位的
-    // hand 分量，已在 DeviceModule 還原為攝氏度）。不屬於 IMotionDataProvider 契約，僅 App 端使用。
+    // HealthData.coreTemperatureC 是體核溫度（B20「0x05 實時數據 V2」temperature 欄位的
+    // body 分量，已在 DeviceModule 還原為攝氏度；受環境與佩戴鬆緊影響，廠商文件註記僅供參考）。
+    // 不屬於 IMotionDataProvider 契約，僅 App 端使用。
     val temperatureStream: Flow<Float> = callbackFlow {
         val listener = object : IHealthDataListener {
             override fun onHealthData(data: HealthData) {
-                data.skinTemperatureC?.let { trySend(it) }
+                data.coreTemperatureC?.let { trySend(it) }
             }
         }
         deviceManager.addHealthDataListener(listener)

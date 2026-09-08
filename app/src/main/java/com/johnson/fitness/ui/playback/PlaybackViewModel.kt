@@ -135,7 +135,7 @@ class PlaybackViewModel(
 
     private val heartRateAcc = Averager()
 
-    // FinalScoreCard 的「平均體溫」：體表/手臂溫度（HealthData.skinTemperatureC），同樣只累積
+    // FinalScoreCard 的「平均體溫」：體核溫度（HealthData.coreTemperatureC），同樣只累積
     // 播放中收到的樣本；跟卡路里一樣「跟影片是否播放中無關、全程收集」的是原始 stream，這裡只在
     // 有效樣本進來時才累加。
     private class FloatAverager {
