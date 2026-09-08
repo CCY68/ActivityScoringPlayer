@@ -65,6 +65,26 @@ data class PlaybackState(
     val caloriesBurned: Int? = null,
     // 手環回報的體表/手臂溫度（攝氏度，僅計播放中收到的）算術平均；無樣本則為 null，UI 顯示「－」
     val avgBodyTemperatureC: Float? = null,
+
+    // ── 活動參與指標（Core ParticipationSnapshot，評分修復更新計畫 §9）─────────────────
+    // 不是分數、不與三面向合成：只回答「有沒有跟著動、量到多少」。Core 以 1 Hz（event time）更新，
+    // 這裡同時供 HUD 即時顯示與成果卡使用（stop 時 Core 會結算並發最後一份快照）。
+    // 評分段內偵測到活動的累積時間（毫秒）→「偵測到活動 14 分鐘」
+    val participationActiveMs: Long = 0L,
+    // 最長連續活動區間（毫秒；≤ 3 s 的短暫停頓不切斷）→「最長連續活動 4 分鐘」
+    val participationLongestRunMs: Long = 0L,
+    // 量測完整度 measuredMs / expectedMs，0..1 →「量測完整度 92%」
+    val participationCoverage: Float = 0f,
+    // 使用者自身腕部幅度訊號的 ACF 正規化峰值（時間加權平均）；null＝不可判斷，UI 留白
+    val participationRhythmRegularity: Float? = null,
+    // Core 是否已經開始累積參與統計（expectedMs > 0）、且統計仍可信；false 時成果卡的活動三項顯示「－」
+    val participationHasData: Boolean = false,
+    // 課程中曾拖曳進度條：Core 的參與統計以 monotonic session event time 計算，seek 會讓它失真
+    // （計畫 §9 的範圍不含暫停／倒帶／重播），成果卡改為說明原因而不是給錯的數字
+    val participationSeeked: Boolean = false,
+    // 課程設定（CourseDisplaySettings）：false 的課程（太極）成果卡不顯示活動三項與三面向分數，
+    // 只留參與時間、量測完整度與生理摘要（§9.2 弱訊號太極、§9.5）
+    val showActivityStats: Boolean = true,
     val alertMessage: String? = null,
     // 窗口反饋文字（"動作標準！"）
     val feedbackLabel: String? = null,
