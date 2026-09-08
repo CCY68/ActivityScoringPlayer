@@ -15,6 +15,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,6 +54,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -251,7 +255,6 @@ fun PlaybackScreen(
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
                 )
-                CloseButton { viewModel.onIntent(PlaybackIntent.BackPressed) }
             }
         }
 
@@ -284,12 +287,20 @@ fun PlaybackScreen(
         // 6. Right HUD panel (3 cards, visible while scoring)
         if (state.isScoring) {
             // HUD 限制在畫面寬度約四分之一，避免遮住教練動作主體。
+            // 三張卡（ScoreCard/HeartRateCard/AccuracyCard，含「結束評分」按鈕）疊起來的高度是照 TV
+            // ≈720dp 高的螢幕抓的；手機（尤其橫向播放時）可用高度常常不到一半，超出的部分會被父層
+            // Box 直接裁掉，導致最下面 AccuracyCard 裡的「結束評分」按鈕整個看不到也點不到。這裡限制
+            // 面板最高只到「螢幕高度 - 底部播放列預留高度」，超出就用 verticalScroll 讓使用者滑得到。
+            val bottomBarReservedHeight = 140.dp
+            val hudMaxHeight = LocalConfiguration.current.screenHeightDp.dp - bottomBarReservedHeight
             Column(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 16.dp, end = if (isCompactWidth()) 10.dp else 20.dp)
                     .fillMaxWidth(0.24f)
-                    .widthIn(min = 120.dp, max = 180.dp),
+                    .widthIn(min = 120.dp, max = 180.dp)
+                    .heightIn(max = hudMaxHeight.coerceAtLeast(0.dp))
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 ScoreCard(
@@ -379,10 +390,14 @@ fun PlaybackScreen(
         ) {
             state.finalScore?.let { score ->
                 FinalScoreCard(
-                    score        = score,
-                    grade        = state.grade,
-                    aspectScores = state.aspectScores,
-                    onBack       = { viewModel.onIntent(PlaybackIntent.BackPressed) }
+                    score          = score,
+                    grade          = state.grade,
+                    aspectScores   = state.aspectScores,
+                    durationMs     = state.exerciseDurationMs,
+                    caloriesBurned = state.caloriesBurned,
+                    avgHeartRate   = state.avgHeartRate,
+                    avgBodyTemperatureC = state.avgBodyTemperatureC,
+                    onBack         = { viewModel.onIntent(PlaybackIntent.BackPressed) }
                 )
             }
         }
@@ -955,43 +970,62 @@ private fun FinalScoreCard(
     score: Int,
     grade: String,
     aspectScores: Map<String, Int>,
+    durationMs: Long,
+    caloriesBurned: Int?,
+    avgHeartRate: Int,
+    avgBodyTemperatureC: Float?,
     onBack: () -> Unit
 ) {
     // 固定 420dp 在手機直向/窄螢幕下可能比螢幕還寬；改成「撐滿可用寬度的 92%，但最多 420dp」，
     // TV/平板維持原本 420dp 觀感，手機自動收斂到螢幕寬度以內並留一點邊距。
-    Column(
+    // 卡片高度另外用螢幕高度扣掉上下留白封頂：手機（尤其橫向播放）高度常不夠放完整張卡，
+    // 內容超出時 Column 改用 verticalScroll 讓使用者滑得到，不會整段被裁掉看不到。
+    val maxCardHeight = LocalConfiguration.current.screenHeightDp.dp - 48.dp
+    Box(
         modifier = Modifier
             .fillMaxWidth(0.92f)
             .widthIn(max = 420.dp)
+            .heightIn(max = maxCardHeight.coerceAtLeast(0.dp))
             .clip(RoundedCornerShape(28.dp))
             .background(JohnsonColors.SurfaceCard)
             .border(1.dp, JohnsonColors.BorderDefault, RoundedCornerShape(28.dp))
-            .padding(if (isCompactWidth()) 24.dp else 36.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text       = "訓練成果",
-            color      = JohnsonColors.TextTertiary,
-            fontSize   = 12.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text       = grade,
-            color      = gradeColor(score),
-            fontSize   = 80.sp,
-            fontWeight = FontWeight.Black,
-            lineHeight = 80.sp
-        )
-        Text(
-            text       = "$score 分",
-            color      = JohnsonColors.TextPrimary,
-            fontSize   = 32.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(if (isCompactWidth()) 24.dp else 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text       = "訓練成果",
+                color      = JohnsonColors.TextTertiary,
+                fontSize   = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text       = grade,
+                    color      = gradeColor(score),
+                    fontSize   = 80.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 80.sp
+                )
+                Text(
+                    text       = "$score 分",
+                    color      = JohnsonColors.TextPrimary,
+                    fontSize   = 32.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier   = Modifier.padding(bottom = 10.dp)
+                )
+            }
 
-        // 三個評分面向各自的課程平均分數（節奏/軌跡/片段相似度），App 端自行平均而來
-        if (aspectScores.isNotEmpty()) {
+            // 運動時長／消耗卡路里／平均心率／平均體溫：課程結束當下才算出來的運動數據，非即時評分面向。
+            // 2x2 排版，跟下方「各面向評分」格子同一套視覺，四格剛好排滿、不用再處理奇數補位。
             Spacer(Modifier.height(20.dp))
             Box(
                 modifier = Modifier
@@ -1000,21 +1034,48 @@ private fun FinalScoreCard(
                     .background(JohnsonColors.BorderSubtle)
             )
             Spacer(Modifier.height(16.dp))
-            Text(
-                text       = "各面向評分",
-                color      = JohnsonColors.TextTertiary,
-                fontSize   = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = 0.2.sp
+            val metrics = listOf(
+                "運動時長" to durationMs.toTimeString(),
+                "消耗卡路里 kcal" to (caloriesBurned?.toString() ?: "－"),
+                "平均心率 bpm" to (if (avgHeartRate > 0) "$avgHeartRate" else "－"),
+                "平均體溫 ℃" to (avgBodyTemperatureC?.let { "%.1f".format(it) } ?: "－")
             )
-            Spacer(Modifier.height(12.dp))
-            val entries = aspectScores.entries.toList()
-            entries.chunked(2).forEach { row ->
+            metrics.chunked(2).forEach { row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    row.forEach { (label, s) ->
+                    row.forEach { (label, value) ->
+                        FinalMetricStat(value = value, label = label, modifier = Modifier.weight(1f))
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+
+            // 三個評分面向各自的課程平均分數（節奏/軌跡/片段相似度），App 端自行平均而來
+            if (aspectScores.isNotEmpty()) {
+                Spacer(Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(JohnsonColors.BorderSubtle)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text       = "各面向評分",
+                    color      = JohnsonColors.TextTertiary,
+                    fontSize   = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.2.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    aspectScores.forEach { (label, s) ->
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -1037,21 +1098,49 @@ private fun FinalScoreCard(
                             )
                         }
                     }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
-                Spacer(Modifier.height(8.dp))
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        // 「返回首頁」疊在卡片左上角的圓形按鈕，跟主要內容分開、不隨 Column 一起捲動，
+        // 確保捲到最下面也一定看得到、按得到。
         Button(
             onClick  = onBack,
+            shape    = ButtonDefaults.shape(shape = CircleShape),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
             modifier = Modifier
-                .fillMaxWidth()
+                .align(Alignment.TopStart)
+                .padding(12.dp)
+                .size(40.dp)
                 .touchClickable(onClick = onBack)
         ) {
-            Text("返回首頁", fontWeight = FontWeight.SemiBold)
+            Text("←", color = JohnsonColors.TextPrimary, fontSize = 18.sp)
         }
+    }
+}
+
+/** FinalScoreCard 運動數據列的單一格：與下方「各面向評分」格子同一套視覺，數字改用較低調的主文字色。 */
+@Composable
+private fun FinalMetricStat(value: String, label: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(JohnsonColors.Ink600)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text       = value,
+            color      = JohnsonColors.TextPrimary,
+            fontSize   = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text      = label,
+            color     = JohnsonColors.TextTertiary,
+            fontSize  = 11.sp,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -1233,6 +1322,10 @@ private fun PlaybackFinalScorePreview() {
                 "軌跡"       to 82,
                 "片段相似度" to 85
             ),
+            durationMs     = 1_830_000L,
+            caloriesBurned = 216,
+            avgHeartRate   = 138,
+            avgBodyTemperatureC = 33.6f,
             onBack = {}
         )
     }

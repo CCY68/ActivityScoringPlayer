@@ -44,6 +44,30 @@ class MotionDataAdapter(
         awaitClose { deviceManager.removeHealthDataListener(listener) }
     }
 
+    // HealthData.calories 是手環「當日累計卡路里」，不是本次課程消耗量；呼叫端需自行記錄
+    // 課程開始當下的讀數再算差值。不屬於 IMotionDataProvider 契約，僅 App 端使用故獨立成員。
+    val caloriesStream: Flow<Int> = callbackFlow {
+        val listener = object : IHealthDataListener {
+            override fun onHealthData(data: HealthData) {
+                data.calories?.let { trySend(it) }
+            }
+        }
+        deviceManager.addHealthDataListener(listener)
+        awaitClose { deviceManager.removeHealthDataListener(listener) }
+    }
+
+    // HealthData.skinTemperatureC 是體表/手臂溫度（B20「0x05 實時數據 V2」temperature 欄位的
+    // hand 分量，已在 DeviceModule 還原為攝氏度）。不屬於 IMotionDataProvider 契約，僅 App 端使用。
+    val temperatureStream: Flow<Float> = callbackFlow {
+        val listener = object : IHealthDataListener {
+            override fun onHealthData(data: HealthData) {
+                data.skinTemperatureC?.let { trySend(it) }
+            }
+        }
+        deviceManager.addHealthDataListener(listener)
+        awaitClose { deviceManager.removeHealthDataListener(listener) }
+    }
+
     // packetId 原樣帶過去：SampleRateNormalizer 靠它偵測裝置感測器重啟（回捲）並重置 epoch。
     private fun ImuData.toRawImuSample() = RawImuSample(
         timestampMs = timestampMs,
