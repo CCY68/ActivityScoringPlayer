@@ -26,6 +26,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 日期 | Core commit | 大小 | 備註 |
 |---|---|---|---|
 | 2026-09-09 | `ae7fdaf`（main） | 368,308 bytes | 評分修復 PR-C1/C1b/C2：靜止＝0 分、互補濾波重力追蹤、形狀通道循環鎖定；`Score.confidence` 語意見下 |
+| 2026-09-09 | `8da87a2`（main） | 367,588 bytes | PR-C1c：節奏不容忍 2× 整流歧義（A6）、刪除 PLV 快分量（B4）；行為對 Player 無介面變更 |
 
 ### 顯示層對 `Score.confidence` 的處理（PR-P1，決策 A1／A3）
 
