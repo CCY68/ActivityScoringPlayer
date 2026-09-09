@@ -12,6 +12,7 @@ import com.fitness.activityscoringcore.api.Score
 import com.fitness.activityscoringcore.api.ScoreReason
 import com.fitness.activityscoringcore.engine.ScoringEngine
 import com.motionmaf.format.MafLoadResult
+import com.johnson.fitness.data.CourseDisplaySettings
 import com.johnson.fitness.data.DeviceAutoConnect
 import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.MovieRepository
@@ -48,7 +49,13 @@ class PlaybackViewModel(
     private val lastDevicePreferences: LastDevicePreferences
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(PlaybackState(movie = MovieRepository.getMovieById(movieId)))
+    private val _state = MutableStateFlow(
+        PlaybackState(
+            movie = MovieRepository.getMovieById(movieId),
+            // 課程設定（§9.2 弱訊號太極）：太極不顯示活動三項與三面向分數，只留參與時間與生理摘要
+            showActivityStats = CourseDisplaySettings.showActivityStats(movieId)
+        )
+    )
     val state: StateFlow<PlaybackState> = _state.asStateFlow()
 
     private val _effect = Channel<PlaybackEffect>(Channel.BUFFERED)
@@ -174,6 +181,17 @@ class PlaybackViewModel(
     private var wasImuConnected = false
     private var lastAspectDiagnosticSignature: String? = null
 
+    // 課程中曾拖曳進度條（seek）：Core 的參與統計以 monotonic session event time 計算，往前跳會被算成
+    // 「未量測的缺口」、往回拉則讓時間停止推進，兩者都會讓量測完整度與連續活動失真。計畫 §9 的範圍
+    // 明文是「開始播放 → 持續播放 → 結束或提前離開」，不含暫停／倒帶／重播；因此只要 seek 過，
+    // 成果卡就不顯示活動統計並說明原因，而不是給一個算錯的數字（Codex QA 缺陷 1）。
+    @Volatile private var seekedWhileScoring = false
+
+    // 結算（StopScoring）只跑一次：ExoPlayer 的 onEvents 會連續送出多個 hasEnded = true 的
+    // VideoStateChanged，使用者也可能同時按「結束評分」，而 StopScoring 是非同步的
+    // （isScoring 要等協程跑到才會變 false）。自動與手動兩個入口共用這個旗標。
+    @Volatile private var finalizingScoring = false
+
     // 進入播放頁只嘗試自動連線一次；失敗或沒有存檔裝置就交給既有的斷線提示引導使用者手動連線，
     // 不要每次 connectionState 回到 Disconnected 就再打一次（例如自動連線失敗、或使用者手動斷線）。
     private var autoConnectAttempted = false
@@ -235,6 +253,28 @@ class PlaybackViewModel(
         viewModelScope.launch {
             engine.alerts.collect { alert ->
                 _state.update { it.copy(alertMessage = alert.message) }
+            }
+        }
+
+        // 活動參與指標（評分修復更新計畫 §9）：Core 的獨立累積器，不是分數、不與三面向合成。
+        // 1 Hz（event time）更新，這裡收的是課程進行中的即時快照，供 HUD 顯示「活動 N 分」；
+        // 成果卡另外用 StopScoring 裡 engine.stop() 的回傳值（已結算、含尾端斷線），見下方。
+        viewModelScope.launch {
+            engine.participation.collect { p ->
+                _state.update {
+                    // 成果卡已經建立（StopScoring 用 stop() 的結算快照填好）之後就不再寫：
+                    // Core 的投影是獨立 coroutine，可能在 stop() 之後才發布結算前的舊快照，
+                    // 那會讓完整度／最長連續活動短暫跳回結算前的數字（Codex QA 缺陷 3）
+                    if (it.finalScore != null) return@update it
+                    it.copy(
+                        participationActiveMs = p.activeMs,
+                        participationLongestRunMs = p.longestRunMs,
+                        participationCoverage = p.coverage,
+                        participationRhythmRegularity = p.rhythmRegularity,
+                        participationHasData = p.expectedMs > 0L && !seekedWhileScoring,
+                        participationSeeked = seekedWhileScoring
+                    )
+                }
             }
         }
 
@@ -306,6 +346,9 @@ class PlaybackViewModel(
                         is ConnectionState.Connected -> {
                             // Core 的 canonical rate 是 25 Hz；裝置不支援時 DeviceModule 會自行軟體節流。
                             deviceManager.setImuSampleRate(ImuSampleRate.HZ_25)
+                            // P5 之後這裡**不**重錨：時間軸由裝置端時鐘換算，DeviceModule 重連會沿用
+                            // 同一條裝置時間軸，斷線期間自然成為時間軸上的缺口（正是 Core 要看到的）。
+                            // 在這裡重錨反而會把斷線缺口壓平成連續資料——那正是 D2 當初要避免的問題。
                             _state.update {
                                 val message = it.alertMessage.orEmpty()
                                 if (message.startsWith("手環") || message.startsWith("尚未連接手環")) {
@@ -561,6 +604,15 @@ class PlaybackViewModel(
                     }
                 }
 
+                // 影片播完自動結算：否則使用者跟練到最後只會停在 HUD，要自己按「結束評分」
+                // 才看得到成果卡與活動參與統計（既有缺口，Codex QA D2 第二輪指出）。
+                // 要求 videoTimeOffsetMs != null：MAF 一載好 isScoring 就是 true，但引擎要到影片
+                // 第一次真正播放才 start()；還沒開始就收到 hasEnded 不該把整堂課結掉（第三輪缺陷 2）。
+                // 互斥旗標由 StopScoring 自己設，這裡只派送 intent（第三輪缺陷 1）。
+                if (intent.hasEnded && _state.value.isScoring && videoTimeOffsetMs != null) {
+                    onIntent(PlaybackIntent.StopScoring)
+                }
+
                 if (_state.value.isScoring && videoTimeOffsetMs == null && intent.isPlaying) {
                     // 影片首次開始播放：建立「裝置 epoch time -> videoTimeMs」的換算基準
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
@@ -603,6 +655,12 @@ class PlaybackViewModel(
                 _state.update { it.copy(alertMessage = null) }
             }
             is PlaybackIntent.StopScoring -> {
+                // 自動（影片播完）與手動（按「結束評分」）共用同一個互斥旗標：engine.stop() 是
+                // suspend，isScoring 要等協程跑到才變 false，只靠它擋不住兩個入口同時進來——
+                // 第二次 stop() 會拿到空的心率結算摘要，把成果卡的參與時間與熱量蓋成 0
+                // （Codex QA D2 第三輪缺陷 1）。
+                if (finalizingScoring || !_state.value.isScoring) return
+                finalizingScoring = true
                 viewModelScope.launch {
                     if (_state.value.isScoring) {
                         seekJob?.cancel()
@@ -611,7 +669,12 @@ class PlaybackViewModel(
                         deviceBridgeJob = null
                         csvReplayJob?.cancel()
                         csvReplayJob = null
-                        engine.stop(videoTimeMs = videoPositionMs)
+                        // Core 的 stop() 會等參與統計結算完才返回，回傳值就是成果卡該用的最終快照；
+                        // 傳入影片位置讓 Core 把「最後一筆樣本到結束之間」的斷線算成未量測（§9.1）。
+                        // seek 過的課程不把影片位置當 stop 時刻：影片位置與 session event time 已經對不起來，
+                        // 傳進去只會憑空多出一段「未量測」。這種課程的參與統計本來就不顯示。
+                        val participation =
+                            if (seekedWhileScoring) engine.stop() else engine.stop(videoTimeMs = videoPositionMs)
                         val exerciseSession = engine.exerciseSession.value
                         // 整堂課都沒有可顯示分數（例如全程靜止、Core 只回低 confidence）時不折成 0 分／D 級，
                         // 成果卡改顯示「無有效評分」（決策 A1）。
@@ -632,7 +695,14 @@ class PlaybackViewModel(
                                 exerciseDurationMs = exerciseSession.durationMs,
                                 avgHeartRate = heartRateAcc.average,
                                 caloriesBurned = exerciseSession.caloriesKcal.roundToInt(),
-                                avgBodyTemperatureC = temperatureAcc.average
+                                avgBodyTemperatureC = temperatureAcc.average,
+                                // 活動參與指標：用 stop() 的結算快照，不用即時 collector 的最後一份
+                                participationActiveMs = participation.activeMs,
+                                participationLongestRunMs = participation.longestRunMs,
+                                participationCoverage = participation.coverage,
+                                participationRhythmRegularity = participation.rhythmRegularity,
+                                participationHasData = participation.expectedMs > 0L && !seekedWhileScoring,
+                                participationSeeked = seekedWhileScoring
                             )
                         }
                     }
@@ -648,6 +718,15 @@ class PlaybackViewModel(
                 }
             }
             is PlaybackIntent.Seek -> {
+                // 只有「評分 session 真的開始過」才算中途 seek：`isScoring` 在 MAF 載入完成就是 true，
+                // 但引擎要到影片第一次真正播放才 start()（那時才會有 videoTimeOffsetMs）。
+                // 播放前先拖到想開始的位置不是中途跳時基，不該讓整堂課的統計被隱藏（Codex QA 缺陷 P4）。
+                if (_state.value.isScoring && videoTimeOffsetMs != null && !seekedWhileScoring) {
+                    seekedWhileScoring = true
+                    // 立刻反映到畫面：Core 用單調 event time，倒帶後可能要好幾分鐘才發下一份參與快照，
+                    // 期間 HUD 會一直顯示已經決定要隱藏的舊數字（Codex QA 缺陷 P5）
+                    _state.update { it.copy(participationHasData = false, participationSeeked = true) }
+                }
                 videoPositionMs = intent.positionMs
                 videoClockAnchorPositionMs = intent.positionMs
                 videoClockAnchorElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
