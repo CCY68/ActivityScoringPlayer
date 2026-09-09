@@ -157,29 +157,6 @@ class PlaybackViewModel(
 
     private val temperatureAcc = FloatAverager()
 
-    // FinalScoreCard 的「消耗卡路里」：HealthData.calories 是手環「當日累計」，不是本次課程消耗量，
-    // 這裡記下評分開始當下的讀數，StopScoring 時算差值。caloriesBaselinePending 處理「開始評分當下
-    // 還沒收到過任何一筆手環讀數」的情況，等第一筆讀數進來時再補記為基準。
-    @Volatile private var latestCalories: Int? = null
-    @Volatile private var caloriesBaseline: Int? = null
-    @Volatile private var caloriesBaselinePending = false
-
-    // FinalScoreCard 的「運動時長」：實際評分/播放經過的時間，暫停不計，非影片總長 videoDurationMs。
-    // 用 elapsedRealtime 累加每一段「播放中」區間；活動中的那一段先不加總，停下來時才併入。
-    @Volatile private var activeElapsedAccumulatorMs: Long = 0L
-    @Volatile private var activeSegmentStartElapsedRealtimeMs: Long? = null
-
-    private fun beginActiveSegment(elapsedRealtimeMs: Long) {
-        activeSegmentStartElapsedRealtimeMs = elapsedRealtimeMs
-    }
-
-    private fun endActiveSegment(elapsedRealtimeMs: Long) {
-        activeSegmentStartElapsedRealtimeMs?.let { start ->
-            activeElapsedAccumulatorMs += (elapsedRealtimeMs - start).coerceAtLeast(0L)
-        }
-        activeSegmentStartElapsedRealtimeMs = null
-    }
-
     // ScoringEngine 的 heartRate StateFlow 初始值就是 imuConnected = false（DeviceConnectivityWatchdog
     // 把「從沒收過樣本」也視為斷線），一進入播放頁、還沒收到裝置第一筆資料前就會先發出這個狀態。
     // 這裡要是預設 true，會把「還沒連上」誤判成「連線後斷線」，一進畫面就跳出斷線警告。
@@ -290,16 +267,6 @@ class PlaybackViewModel(
                     val videoTimeMs = toVideoTimeMs(System.currentTimeMillis()) ?: return@collect
                     engine.submitHeartRateSample(bpm, videoTimeMs)
                     heartRateAcc.add(bpm)
-                }
-            }
-            launch {
-                // 0x05 無自動推送機制、由 DeviceModule 定期輪詢，跟影片是否播放中無關，全程收集。
-                motionAdapter.caloriesStream.collect { cal ->
-                    latestCalories = cal
-                    if (caloriesBaselinePending) {
-                        caloriesBaseline = cal
-                        caloriesBaselinePending = false
-                    }
                 }
             }
             launch {
@@ -570,8 +537,6 @@ class PlaybackViewModel(
                 if (_state.value.isScoring && videoTimeOffsetMs == null && intent.isPlaying) {
                     // 影片首次開始播放：建立「裝置 epoch time -> videoTimeMs」的換算基準
                     videoTimeOffsetMs = System.currentTimeMillis() - intent.positionMs
-                    beginActiveSegment(intent.elapsedRealtimeMs)
-                    latestCalories?.let { caloriesBaseline = it } ?: run { caloriesBaselinePending = true }
                     viewModelScope.launch {
                         engine.start(intent.positionMs)
                         when (_state.value.imuDataSource) {
@@ -582,14 +547,12 @@ class PlaybackViewModel(
                     }
                 } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
                     lastStableImuVideoTimeMs = null
-                    beginActiveSegment(intent.elapsedRealtimeMs)
                     viewModelScope.launch {
                         engine.resume()
                         if (_state.value.imuDataSource == ImuDataSource.CSV) startCsvReplay()
                     }
                 } else if (_state.value.isScoring && wasPlaying && !intent.isPlaying) {
                     lastStableImuVideoTimeMs = null
-                    endActiveSegment(intent.elapsedRealtimeMs)
                     csvReplayJob?.cancel()
                     csvReplayJob = null
                     viewModelScope.launch { engine.pause() }
@@ -618,16 +581,13 @@ class PlaybackViewModel(
                         deviceBridgeJob = null
                         csvReplayJob?.cancel()
                         csvReplayJob = null
-                        engine.stop()
-                        endActiveSegment(android.os.SystemClock.elapsedRealtime())
+                        engine.stop(videoTimeMs = videoPositionMs)
+                        val exerciseSession = engine.exerciseSession.value
                         // 整堂課都沒有可顯示分數（例如全程靜止、Core 只回低 confidence）時不折成 0 分／D 級，
                         // 成果卡改顯示「無有效評分」（決策 A1）。
                         val accs = listOf(tempoAcc, trajectoryAcc, segmentSimilarityAcc).filter { it.hasData }
                         val hasValidScore = accs.isNotEmpty()
                         val finalScore = if (hasValidScore) accs.sumOf { it.average } / accs.size else 0
-                        val caloriesBurned = caloriesBaseline?.let { base ->
-                            latestCalories?.let { latest -> (latest - base).coerceAtLeast(0) }
-                        }
                         _state.update {
                             it.copy(
                                 isScoring    = false,
@@ -639,9 +599,9 @@ class PlaybackViewModel(
                                     if (tempoAcc.hasData) put("節奏", tempoAcc.average)
                                     if (trajectoryAcc.hasData) put("軌跡", trajectoryAcc.average)
                                 },
-                                exerciseDurationMs = activeElapsedAccumulatorMs,
+                                exerciseDurationMs = exerciseSession.durationMs,
                                 avgHeartRate = heartRateAcc.average,
-                                caloriesBurned = caloriesBurned,
+                                caloriesBurned = exerciseSession.caloriesKcal.roundToInt(),
                                 avgBodyTemperatureC = temperatureAcc.average
                             )
                         }

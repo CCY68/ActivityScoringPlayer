@@ -3,6 +3,8 @@ package com.johnson.fitness.data
 import android.content.Context
 import com.fitness.activityscoringcore.api.EngineConfig
 import com.fitness.activityscoringcore.engine.ScoringEngine
+import com.fitness.activityscoringcore.heart.BiologicalSex
+import com.fitness.activityscoringcore.heart.CalorieModel
 import com.fitness.activityscoringcore.heart.UserProfile
 import com.fitness.activityscoringcore.reference.readMafAssetBytes
 import com.motionmaf.format.AesGcmEnvelopeMafDecryptor
@@ -50,8 +52,15 @@ class ScoringEngineFactory(
 
     private companion object {
         val KEY_ID_PATTERN = Regex("[A-Za-z0-9._-]+")
-        // TODO: 目前沒有使用者生理資料設定頁面，先用固定預設值讓心率安全管線（%HRR/SafetyState）可運作。
+        // TODO: 目前沒有使用者生理資料設定頁面，先用固定預設值讓心率安全管線與熱量估算可運作。
         // 之後有使用者資料來源時，應改由呼叫端注入真實的 UserProfile。
-        val DEFAULT_USER_PROFILE = UserProfile(ageYears = 30, restingHeartRateBpm = 65)
+        val DEFAULT_USER_PROFILE = UserProfile(
+            ageYears = 30,
+            restingHeartRateBpm = 65,
+            biologicalSex = BiologicalSex.MALE,
+            weightKg = 70f,
+            heightCm = 170f,
+            calorieModel = CalorieModel.VO2R
+        )
     }
 }

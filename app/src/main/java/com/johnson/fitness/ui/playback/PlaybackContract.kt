@@ -57,11 +57,11 @@ data class PlaybackState(
     // ActivityScoringCore 已不提供聚合總分/多演算法比較（ADR 0011），此處為 App 端自行計算的平均值
     val aspectScores: Map<String, Int> = emptyMap(),
     // 以下三項只在 StopScoring 時計算一次，供 FinalScoreCard 顯示：
-    // 實際評分/播放經過的時間（暫停不計），非影片總長 videoDurationMs
+    // Core 依 start/stop 影片時間結算的本次運動時長
     val exerciseDurationMs: Long = 0L,
     // 手環回報心率樣本（僅計播放中收到的）算術平均，無樣本則為 0
     val avgHeartRate: Int = 0,
-    // 手環「當日累計卡路里」在本次評分開始/結束的差值；沒有手環資料則為 null，UI 顯示「－」
+    // Core 依 1 Hz 心率與 UserProfile 估算的本次課程熱量
     val caloriesBurned: Int? = null,
     // 手環回報的體表/手臂溫度（攝氏度，僅計播放中收到的）算術平均；無樣本則為 null，UI 顯示「－」
     val avgBodyTemperatureC: Float? = null,
