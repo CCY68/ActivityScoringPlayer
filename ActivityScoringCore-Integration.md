@@ -28,6 +28,12 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 2026-09-09 | `ae7fdaf`（main） | 368,308 bytes | 評分修復 PR-C1/C1b/C2：靜止＝0 分、互補濾波重力追蹤、形狀通道循環鎖定；`Score.confidence` 語意見下 |
 | 2026-09-09 | `8da87a2`（main） | 367,588 bytes | PR-C1c：節奏不容忍 2× 整流歧義（A6）、刪除 PLV 快分量（B4）；行為對 Player 無介面變更 |
 
+### 目前內建的 device-module.aar 版本
+
+| 日期 | DeviceModule commit | 大小 | 備註 |
+|---|---|---|---|
+| 2026-09-10 | `0bf8604`（main） | 138,447 bytes | B20 時戳改以裝置時鐘為主（`ImuData.deviceTimestampUs` 新增）、104→25 Hz 改格點重取樣、重連沿用時間軸、`setImuSampleRate()` 重連後自動重套。**Player 即時路徑仍以 `nextStableImuVideoTimeMs` 的計數式時間軸覆蓋裝置時戳，換用裝置時戳為後續工作（DeviceModule issue #1、Player issue #1）** |
+
 ### 顯示層對 `Score.confidence` 的處理（PR-P1，決策 A1／A3）
 
 Core 1.1 起**靜止或訊號沒有週期結構時，不再回暖機分數，而是誠實回 `AVAILABLE` ＋ 低 `value` ＋ `confidence ≈ 0`**。
