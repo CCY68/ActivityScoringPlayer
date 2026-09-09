@@ -27,6 +27,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 |---|---|---|---|
 | 2026-09-09 | `ae7fdaf`（main） | 368,308 bytes | 評分修復 PR-C1/C1b/C2：靜止＝0 分、互補濾波重力追蹤、形狀通道循環鎖定；`Score.confidence` 語意見下 |
 | 2026-09-09 | `8da87a2`（main） | 367,588 bytes | PR-C1c：節奏不容忍 2× 整流歧義（A6）、刪除 PLV 快分量（B4）；行為對 Player 無介面變更 |
+| 2026-09-10 | `7a0f399`（main） | 410,361 bytes（sha256 前 16 碼 `a8994d7ffd5bb62d`） | D2 活動參與指標：新增 `ScoringEngine.participation: StateFlow<ParticipationSnapshot>`；**`stop()` 介面變更**為 `suspend fun stop(videoTimeMs: Long? = null): ParticipationSnapshot`（原始碼相容，舊呼叫 `engine.stop()` 照舊可用）。含 D2.1（`regularityMinWindows = 3`、`regularityMinPeriodicity = 0.50`、`regularityMinActiveRatio = 0.75`）與 D2.2（`countOutsideSegments = true`，整堂課統計）。三面向與心率行為不變 |
 
 ### 目前內建的 device-module.aar 版本
 
@@ -78,6 +79,43 @@ Player 顯示層（`PlaybackViewModel`）因此只採用 `availability == AVAILA
 - Core 有回分數但沒有任何合格面向 → HUD 顯示「等待動作」（`awaitingMotion`），不是 0 分。
 - 整堂課都沒有合格分數 → 成果卡顯示「無有效評分」，不給 D 級。
 - 「順序」（片段相似度）面向依決策 A3 延後，HUD 與成果卡皆不顯示；決策依據見 Core `docs/評分修復更新計畫_v1_20260907.md`。
+
+### 活動參與統計（D2，計畫 §9）
+
+Core 1.2 起多一個**不是分數**的輸出：`engine.participation: StateFlow<ParticipationSnapshot>`。
+它回答「使用者**有沒有跟著動、我們量到多少**」，與三面向（動作是否精準）分開，不參與加權、不出總分。
+
+| 欄位 | Player 用在哪 |
+|---|---|
+| `activeMs` | 成果卡「偵測到活動」、HUD「活動 N 分」 |
+| `longestRunMs` | 成果卡「最長連續活動」（≤ 3 s 的短暫停頓不切斷） |
+| `coverage`（`measuredMs / expectedMs`） | 成果卡「量測完整度」 |
+| `rhythmRegularity: Float?` | 成果卡「節奏規律」；`null` 代表不可判斷，**UI 留白**（顯示「－」），不要顯示 0 |
+| `settled` | `true` 才是結算完成的快照 |
+
+呼叫端的三個重點：
+
+1. **成果卡用 `engine.stop(videoTimeMs)` 的回傳值**，不要在 `stop()` 之後改讀 `participation.value`。
+   `stop()` 現在是 `suspend fun stop(videoTimeMs: Long? = null): ParticipationSnapshot`，會等本次結算
+   完成才返回。傳入結束當下的影片位置，Core 才能把「最後一筆 IMU 樣本到結束之間」的斷線算成未量測。
+2. **進行中的即時快照**（1 Hz，event time）只給 HUD 用。
+3. **課程層級的呈現由 Player 決定**：`CourseDisplaySettings.showActivityStats(movieId)` 為 false 的課程
+   （目前只有太極）成果卡不顯示活動三項與三面向分數，只留參與時間、量測完整度與生理摘要。
+   原因是慢動作在 Core 的靜止門檻 0.70 下多被判靜止——真實錄製的 `activeMs ÷ 評分段總長`只有 0.565
+   （健康操是 0.87–0.98）。這一輪**不改 Core 常數、不動 MAF**（計畫 §9.2）。
+
+「參與時間」（Player 既有的 `exerciseDurationMs`，實際跟著播放的時間）與「偵測到活動」（`activeMs`）
+是**兩個不同的問題**，成果卡並列顯示，不要互相取代。
+
+#### D2.1／D2.2（Core `7a0f399`）之後 UI 要注意的兩件事
+
+1. **`activeMs` 是整堂課統計，不再以評分段閘門**（`countOutsideSegments = true`）：過場／暖身時
+   在動的時間也算，因此**可能大於評分段總長**（Core 實測 1.03–1.19 倍）。
+   UI **不可**用「`activeMs` ÷ 評分段總長」當百分比，也不要假設它小於課程長度的某個比例。
+   唯一保證是 `activeMs ≤ measuredMs ≤ expectedMs`。目前成果卡顯示的是絕對分鐘數，符合這個約束。
+2. **`rhythmRegularity` 會更常留白**：合格窗至少 3 個、ACF 峰值門檻 0.50、窗內活動比例門檻 0.75。
+   Core 的驗收顯示兩份名義靜止錄製都退回 `null`，真正在跟做的五份仍有值（0.606–0.643）。
+   `null` 一定要真的留白（顯示「－」），不可折成 0 或 0%。
 
 ## 2. App 目前怎麼用它（實際呼叫路徑）
 
