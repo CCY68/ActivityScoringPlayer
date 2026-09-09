@@ -32,7 +32,42 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 
 | 日期 | DeviceModule commit | 大小 | 備註 |
 |---|---|---|---|
-| 2026-09-10 | `0bf8604`（main） | 138,447 bytes | B20 時戳改以裝置時鐘為主（`ImuData.deviceTimestampUs` 新增）、104→25 Hz 改格點重取樣、重連沿用時間軸、`setImuSampleRate()` 重連後自動重套。**Player 即時路徑仍以 `nextStableImuVideoTimeMs` 的計數式時間軸覆蓋裝置時戳，換用裝置時戳為後續工作（DeviceModule issue #1、Player issue #1）** |
+| 2026-09-10 | `0bf8604`（main） | 138,447 bytes | B20 時戳改以裝置時鐘為主（`ImuData.deviceTimestampUs` 新增）、104→25 Hz 改格點重取樣、重連沿用時間軸、`setImuSampleRate()` 重連後自動重套 |
+
+### 送進引擎的時間軸（P5）
+
+`ScoringEngine.submitImuSample()` 收到的 `RawImuSample.timestampMs` 一律是**影片時間**（ms），
+由裝置端時鐘換算（`data/ImuVideoTimeline.kt`）：
+
+```
+videoTimeMs = (deviceTimestampUs − 錨點裝置時戳) / 1000 + 錨點影片位置
+```
+
+- 錨點在影片開始播放、暫停後續播、`seek` 時重新綁定；`engine.start()`／`resume()`／`seek()`
+  的影片位置與錨點位置一致。
+- 丟樣（BLE 積壓、每整分鐘健康資料停頓、斷線重連）**以缺口進 Core，不補樣本**；
+  Core 端的視窗填充率／缺口規則據此判斷缺測。
+- 裝置時鐘倒退（感測器重開歸零）以「上一筆 + 40 ms」續接，保證送進 Core 的時戳單調。
+- `deviceTimestampUs == null`（非幀式協議品牌）退回計數式時間軸：第一筆用錨點位置，之後每筆 +40 ms。
+- 錨點綁在**第一筆樣本到達當下**的影片位置，並扣掉該筆的送達延遲
+  （`System.currentTimeMillis() − ImuData.timestampMs`，上限 2 s）：重錨到第一筆樣本之間的等待
+  會讓時間軸整段落後，用 BLE 積壓的樣本錨定則會讓整段超前，兩者都要修掉。
+  送達延遲另外扣掉「手機 wall clock 校時量」——DeviceModule 的 epoch 基準要變化超過 30 s 才會
+  重新錨定，小幅校時會讓 `timestampMs` 永久偏掉，故以「wall clock − `elapsedRealtime`」的跳動量累積補償。
+- 開播／暫停／續播的重錨**保留單調下限**（上一筆輸出 + 40 ms）：續播後最先到達的可能是暫停期間
+  產生的積壓樣本，扣掉延遲後落在暫停前，這種樣本直接丟掉（成為缺口），不塞進續播段。
+  往回 seek 才會清掉這個下限。
+- seek 去抖動（120 ms）期間不送樣本，避免 Core 在 `engine.seek()` 生效前先收到重錨後的較早時戳。
+- **所有 seek 都會走到重錨**：`PlaybackScreen` 除了自訂進度條，另外監聽播放器的
+  `onPositionDiscontinuity(DISCONTINUITY_REASON_SEEK)` 補送 `PlaybackIntent.Seek`，
+  PlayerView 內建控制器與 D-pad 快轉／倒轉因此也會重錨並呼叫 `engine.seek()`。
+
+**已知限制**：錄製中途往回 seek 的 CSV 無法完整重現當時的即時評分——CSV 只有單一 `timestamp_ms`
+欄位，讀取時整份依它排序，同一段影片的兩遍樣本會交錯；且 seek 去抖動期間 LIVE 不送樣、錄製照寫，
+兩邊接受的樣本集合本來就不同。靜坐錄製流程（README）因此要求全程不 seek。
+
+錄製 CSV（`ImuCsvStore`）走同一套換算，因此 Replay CSV 模式回放時的時間軸與即時路徑一致；
+舊 CSV（含 `video_position_ms` 欄位的版本）的讀取相容性不變。
 
 ### 顯示層對 `Score.confidence` 的處理（PR-P1，決策 A1／A3）
 
