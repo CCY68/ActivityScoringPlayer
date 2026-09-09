@@ -28,22 +28,23 @@ class ImuCsvStore(
     private var writer: BufferedWriter? = null
     private var outputUri: Uri? = null
     private var mediaStoreOutput = false
-    private var lastVideoTimestampMs: Long? = null
+
+    // 錄製時戳與送進 Core 的即時時戳走同一套換算（P5）：以裝置端時鐘（ImuData.deviceTimestampUs）
+    // 換算影片時間，開播／續播／seek 由呼叫端 reanchor()。舊的「與預期差 > 500 ms 就重錨」規則
+    // 會把真實丟樣抹平成連續樣本，已拿掉；沒有裝置時鐘的裝置仍退回計數式時間軸。
+    private val timeline = ImuVideoTimeline(IMU_SAMPLE_INTERVAL_MS)
 
     private val listener = object : IImuDataListener {
         override fun onImuData(data: ImuData) {
             synchronized(lock) {
-                val videoPositionMs = videoPositionProvider(SystemClock.elapsedRealtime()) ?: return
-                val previous = lastVideoTimestampMs
-                val expected = previous?.plus(IMU_SAMPLE_INTERVAL_MS)
-                val timestampMs = if (
-                    expected == null || kotlin.math.abs(videoPositionMs - expected) > VIDEO_CLOCK_REANCHOR_THRESHOLD_MS
-                ) {
-                    videoPositionMs
-                } else {
-                    expected
-                }
-                lastVideoTimestampMs = timestampMs
+                val elapsedRealtimeMs = SystemClock.elapsedRealtime()
+                val videoPositionMs = videoPositionProvider(elapsedRealtimeMs) ?: return
+                val ageMs = timeline.sampleAgeMs(
+                    data.timestampMs, System.currentTimeMillis(), elapsedRealtimeMs
+                )
+                // null＝暫停期間的積壓樣本，不寫進 CSV（留成缺口）
+                val timestampMs = timeline.videoTimeMsFor(data.deviceTimestampUs, videoPositionMs, ageMs)
+                    ?: return
                 writer?.run {
                     append(timestampMs.toString())
                     append(',').append(data.ax.toString())
@@ -58,6 +59,16 @@ class ImuCsvStore(
         }
     }
 
+    /** 影片開播／暫停／續播後重錨錄製時間軸（與 [ImuVideoTimeline.reanchor] 同語意）。 */
+    fun reanchor() {
+        synchronized(lock) { timeline.reanchor() }
+    }
+
+    /** seek 後重錨（與 [ImuVideoTimeline.reanchorAfterSeek] 同語意）。 */
+    fun reanchorAfterSeek() {
+        synchronized(lock) { timeline.reanchorAfterSeek() }
+    }
+
     fun startRecording(): Result<String> = runCatching {
         synchronized(lock) {
             check(writer == null) { "IMU 已在錄製中" }
@@ -65,7 +76,7 @@ class ImuCsvStore(
             try {
                 val (uri, newWriter) = createWriter(fileName)
                 outputUri = uri
-                lastVideoTimestampMs = null
+                timeline.reset()
                 writer = newWriter.apply {
                     appendLine(CSV_HEADER)
                     flush()
@@ -78,7 +89,7 @@ class ImuCsvStore(
                 outputUri?.let { uri -> context.contentResolver.delete(uri, null, null) }
                 outputUri = null
                 mediaStoreOutput = false
-                lastVideoTimestampMs = null
+                timeline.reset()
                 throw error
             }
         }
@@ -177,7 +188,6 @@ class ImuCsvStore(
     private companion object {
         const val FILE_NAME_PATTERN = "yyyy-MM-dd'T'HH:mm:ss.SSS"
         const val CSV_HEADER = "timestamp_ms,ax,ay,az,gx,gy,gz"
-        const val IMU_SAMPLE_INTERVAL_MS = 40L
-        const val VIDEO_CLOCK_REANCHOR_THRESHOLD_MS = 500L
+        const val IMU_SAMPLE_INTERVAL_MS = ImuVideoTimeline.DEFAULT_SAMPLE_INTERVAL_MS
     }
 }

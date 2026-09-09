@@ -10,6 +10,7 @@ import com.fitness.activityscoringcore.signal.RawImuSample
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.map
 
 /**
  * 將 IDeviceManager 的 listener-based 回調轉換為 IMotionDataProvider 所需的 Flow。
@@ -24,15 +25,22 @@ class MotionDataAdapter(
     private val deviceManager: IDeviceManager
 ) : IMotionDataProvider {
 
-    override val imuStream: Flow<RawImuSample> = callbackFlow {
+    /**
+     * 帶裝置時鐘的原始 IMU 串流。[IMotionDataProvider.imuStream] 的 [RawImuSample] 沒有
+     * `deviceTimestampUs` 欄位（Core 刻意不依賴 DeviceModule），但 P5 的影片時間軸換算需要它，
+     * 所以 App 端另外收這一條；[imuStream] 由它映射而來，listener 註冊行為完全相同。
+     */
+    val deviceImuStream: Flow<ImuData> = callbackFlow {
         val listener = object : IImuDataListener {
             override fun onImuData(data: ImuData) {
-                trySend(data.toRawImuSample())
+                trySend(data)
             }
         }
         deviceManager.addImuDataListener(listener)
         awaitClose { deviceManager.removeImuDataListener(listener) }
     }
+
+    override val imuStream: Flow<RawImuSample> = deviceImuStream.map(ImuData::toRawImuSample)
 
     override val heartRateStream: Flow<Int> = callbackFlow {
         val listener = object : IHealthDataListener {
@@ -69,11 +77,13 @@ class MotionDataAdapter(
         awaitClose { deviceManager.removeHealthDataListener(listener) }
     }
 
-    // packetId 原樣帶過去：SampleRateNormalizer 靠它偵測裝置感測器重啟（回捲）並重置 epoch。
-    private fun ImuData.toRawImuSample() = RawImuSample(
-        timestampMs = timestampMs,
-        ax = ax, ay = ay, az = az,
-        gx = gx, gy = gy, gz = gz,
-        packetId = packetId
-    )
 }
+
+// packetId 原樣帶過去：SampleRateNormalizer 靠它偵測裝置感測器重啟（回捲）並重置 epoch。
+// timestampMs 由呼叫端換算成影片時間後覆蓋（見 PlaybackViewModel 與 ImuVideoTimeline）。
+internal fun ImuData.toRawImuSample() = RawImuSample(
+    timestampMs = timestampMs,
+    ax = ax, ay = ay, az = az,
+    gx = gx, gy = gy, gz = gz,
+    packetId = packetId
+)

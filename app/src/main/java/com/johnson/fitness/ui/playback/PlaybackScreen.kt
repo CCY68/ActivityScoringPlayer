@@ -147,6 +147,21 @@ fun PlaybackScreen(
 
     DisposableEffect(exoPlayer) {
         val listener = object : Player.Listener {
+            // PlayerView 內建控制器（進度條、D-pad 快轉／倒轉）會直接呼叫播放器 seek，不會經過
+            // 下面自訂進度條的 PlaybackIntent.Seek；只靠 onEvents 的 VideoStateChanged 無法辨識
+            // 那是一次 seek，IMU 時間軸不會重錨、Core 也收不到 engine.seek()（Codex QA 缺陷 7）。
+            // 這裡統一由播放器的位置不連續事件補送 Seek；與自訂進度條重複送出是無害的
+            // （重錨冪等、engine.seek() 有去抖動、CSV Replay 索引重算結果相同）。
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
+                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                    viewModel.onIntent(PlaybackIntent.Seek(newPosition.positionMs))
+                }
+            }
+
             override fun onEvents(player: Player, events: Player.Events) {
                 viewModel.onIntent(
                     PlaybackIntent.VideoStateChanged(

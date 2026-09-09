@@ -17,6 +17,7 @@ import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.MovieRepository
 import com.johnson.fitness.data.ScoringEngineFactory
 import com.johnson.fitness.data.ImuCsvStore
+import com.johnson.fitness.data.ImuVideoTimeline
 import com.fitness.activityscoringcore.signal.RawImuSample
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,16 +83,26 @@ class PlaybackViewModel(
 
     private fun toVideoTimeMs(deviceEpochMs: Long): Long? = videoTimeOffsetMs?.let { deviceEpochMs - it }
 
-    // B20 每個 BLE frame 會一次解出多筆 IMU；device-module 目前會在「每一包」重新以
-    // currentTimeMillis 建立時間戳，造成前一包尾端時間晚於下一包開頭。Core 會把這種時間倒退
-    // 視為感測器重啟並清空視窗，因此畫面會永遠停在暖機。這裡依已要求的 25 Hz 建立連續的
-    // 影片時間軸；暫停、續播或 seek 時重新錨定到播放器位置。
-    @Volatile private var lastStableImuVideoTimeMs: Long? = null
+    // IMU 的影片時間軸（P5）：DeviceModule 0bf8604 起 B20 每筆樣本都帶裝置端時鐘
+    // （ImuData.deviceTimestampUs，不受 BLE 送達延遲影響），時間軸直接由它換算，
+    // 開播／續播／seek 時重新錨定到播放器位置。丟樣會如實變成時間軸上的缺口（不補樣本），
+    // 舊的計數式時間軸則會把丟樣累積成整條時間軸的漂移。詳見 ImuVideoTimeline。
+    private val imuTimeline = ImuVideoTimeline(IMU_SAMPLE_INTERVAL_MS)
 
-    private fun nextStableImuVideoTimeMs(): Long {
-        val next = lastStableImuVideoTimeMs?.plus(IMU_SAMPLE_INTERVAL_MS) ?: videoPositionMs
-        lastStableImuVideoTimeMs = next
-        return next
+    /**
+     * 開播、暫停、續播後讓 IMU 與錄製兩條時間軸的錨點失效（保留單調下限），下一筆樣本會以它
+     * 到達當下的影片位置重新綁定。**與是否在評分無關**：不評分播放時的 CSV 錄製一樣要正確
+     * （Codex QA 第一輪缺陷 3）。
+     */
+    private fun reanchorImuTimelines() {
+        imuTimeline.reanchor()
+        imuCsvStore.reanchor()
+    }
+
+    /** seek 後的重錨：連單調下限一起清掉（往回拉時時戳本來就該回到前面）。 */
+    private fun reanchorImuTimelinesAfterSeek() {
+        imuTimeline.reanchorAfterSeek()
+        imuCsvStore.reanchorAfterSeek()
     }
 
     private var feedbackDismissJob: Job? = null
@@ -250,10 +261,24 @@ class PlaybackViewModel(
         if (deviceBridgeJob?.isActive == true) return
         deviceBridgeJob = viewModelScope.launch {
             launch {
-                motionAdapter.imuStream.collect { raw ->
+                motionAdapter.deviceImuStream.collect { data ->
                     if (!videoIsPlaying) return@collect
-                    val videoTimeMs = nextStableImuVideoTimeMs()
-                    engine.submitImuSample(raw.copy(timestampMs = videoTimeMs))
+                    // seek 去抖動期間 engine.seek() 還沒套用，此時送樣本會讓 Core 先收到
+                    // 重錨後（可能較早）的時戳；直接跳過，seek 完成後再繼續。
+                    if (seekJob?.isActive == true) return@collect
+                    // 錨點要綁在「這筆樣本到達當下」的影片位置，不是重錨當下的位置（QA 第一輪缺陷 1）；
+                    // 並扣掉這筆樣本的送達延遲，否則用積壓樣本錨定會讓整段時間軸固定超前（第二輪缺陷 1）。
+                    // 回傳 null＝這筆是暫停期間的積壓樣本，丟掉（第三輪缺陷 1）。
+                    val elapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
+                    val ageMs = imuTimeline.sampleAgeMs(
+                        data.timestampMs, System.currentTimeMillis(), elapsedRealtimeMs
+                    )
+                    val videoTimeMs = imuTimeline.videoTimeMsFor(
+                        data.deviceTimestampUs,
+                        estimateVideoPositionMs(elapsedRealtimeMs),
+                        ageMs
+                    ) ?: return@collect
+                    engine.submitImuSample(data.toRawImuSample().copy(timestampMs = videoTimeMs))
                     receivedImuSampleCount++
                     if (receivedImuSampleCount == 1L || receivedImuSampleCount % 25L == 0L) {
                         // 這裡只計算已實際呼叫 submitImuSample() 的樣本，不是單純收到的 BLE 回調。
@@ -506,6 +531,8 @@ class PlaybackViewModel(
                 videoPlaybackSpeed = intent.playbackSpeed
                 videoIsPlaying = intent.isPlaying
                 videoPositionMs = intent.positionMs
+                // 播放／暫停切換就重錨兩條 IMU 時間軸，避免暫停期間走掉的裝置時鐘灌進影片時間。
+                if (wasPlaying != intent.isPlaying) reanchorImuTimelines()
                 _state.update {
                     it.copy(
                         videoPositionMs = intent.positionMs,
@@ -546,13 +573,16 @@ class PlaybackViewModel(
                         }
                     }
                 } else if (_state.value.isScoring && !wasPlaying && intent.isPlaying) {
-                    lastStableImuVideoTimeMs = null
                     viewModelScope.launch {
                         engine.resume()
-                        if (_state.value.imuDataSource == ImuDataSource.CSV) startCsvReplay()
+                        // 還有 seek 在去抖動排隊時不要自己恢復 Replay：那批樣本會搶在
+                        // engine.seek() 之前送進 Core（Codex QA 第三輪缺陷 3）。
+                        // 待執行的 seekJob 完成 engine.seek() 後會自己啟動 Replay。
+                        if (_state.value.imuDataSource == ImuDataSource.CSV && seekJob?.isActive != true) {
+                            startCsvReplay()
+                        }
                     }
                 } else if (_state.value.isScoring && wasPlaying && !intent.isPlaying) {
-                    lastStableImuVideoTimeMs = null
                     csvReplayJob?.cancel()
                     csvReplayJob = null
                     viewModelScope.launch { engine.pause() }
@@ -621,7 +651,7 @@ class PlaybackViewModel(
                 videoPositionMs = intent.positionMs
                 videoClockAnchorPositionMs = intent.positionMs
                 videoClockAnchorElapsedRealtimeMs = android.os.SystemClock.elapsedRealtime()
-                lastStableImuVideoTimeMs = null
+                reanchorImuTimelinesAfterSeek()
                 if (_state.value.imuDataSource == ImuDataSource.CSV) {
                     csvReplayJob?.cancel()
                     csvReplayJob = null
