@@ -81,6 +81,7 @@ import com.johnson.fitness.ui.theme.JohnsonColors
 import androidx.compose.foundation.layout.widthIn
 import kotlinx.coroutines.delay
 import androidx.compose.ui.tooling.preview.Preview
+import kotlin.math.roundToInt
 
 // ─── Entry ────────────────────────────────────────────────────────────────────
 
@@ -332,6 +333,13 @@ fun PlaybackScreen(
                     accuracy = state.accuracy,
                     awaitingMotion = state.awaitingMotion,
                     aspectScores = state.currentAspectScores,
+                    activeMs = state.participationActiveMs,
+                    // 太極（showActivityStats = false）連 HUD 也不顯示：隱藏的理由是慢動作會被低估，
+                    // 這個限制在播放中同樣成立，播放時給低估數字、結束後又拿掉會更難理解。
+                    // 註：HUD 的即時三面向分數對太極**仍會顯示**（成果卡則不顯示）。這是刻意保留——
+                    // 顯示層已經尊重 confidence（PR-P1），太極訊號不足時本來就會顯示「等待動作」而不是分數；
+                    // 若連 HUD 分數也拿掉，整堂太極就完全沒有即時回饋。是否統一由使用者決定（見 DONE_Player.md）。
+                    showActiveTime = state.participationHasData && state.showActivityStats,
                     onStop   = { viewModel.onIntent(PlaybackIntent.StopScoring) }
                 )
             }
@@ -415,6 +423,13 @@ fun PlaybackScreen(
                     caloriesBurned = state.caloriesBurned,
                     avgHeartRate   = state.avgHeartRate,
                     avgBodyTemperatureC = state.avgBodyTemperatureC,
+                    activeMs       = state.participationActiveMs,
+                    longestRunMs   = state.participationLongestRunMs,
+                    coverage       = state.participationCoverage,
+                    rhythmRegularity = state.participationRhythmRegularity,
+                    participationHasData = state.participationHasData,
+                    participationSeeked = state.participationSeeked,
+                    showActivityStats = state.showActivityStats,
                     onBack         = { viewModel.onIntent(PlaybackIntent.BackPressed) }
                 )
             }
@@ -761,6 +776,9 @@ private fun AccuracyCard(
     accuracy: Int,
     awaitingMotion: Boolean = false,
     aspectScores: Map<String, Int?>,
+    /** Core 參與統計的即時 `activeMs`（評分修復更新計畫 §9.5「HUD 可即時顯示『活動 N 分』」） */
+    activeMs: Long = 0L,
+    showActiveTime: Boolean = false,
     onStop: () -> Unit
 ) {
     HudCard {
@@ -817,6 +835,17 @@ private fun AccuracyCard(
                 )
                 Spacer(Modifier.height(4.dp))
                 AspectScoresRow(aspectScores)
+                // 活動參與（§9.5）：與動作準度並列，回答的是「有沒有跟著動」而不是「動得對不對」
+                if (showActiveTime) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "活動 ${activeMinutesLabel(activeMs)}",
+                        color = JohnsonColors.TextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 12.sp
+                    )
+                }
                 Spacer(Modifier.height(6.dp))
                 Button(
                     onClick = onStop,
@@ -995,6 +1024,16 @@ private fun FinalScoreCard(
     caloriesBurned: Int?,
     avgHeartRate: Int,
     avgBodyTemperatureC: Float?,
+    // ── 活動參與指標（Core ParticipationSnapshot，評分修復更新計畫 §9.5）─────────────
+    activeMs: Long = 0L,
+    longestRunMs: Long = 0L,
+    coverage: Float = 0f,
+    rhythmRegularity: Float? = null,
+    participationHasData: Boolean = false,
+    /** 課程中曾拖曳進度條：參與統計會失真，改為說明原因而不是給錯的數字 */
+    participationSeeked: Boolean = false,
+    /** false（目前：太極）時只顯示參與時間、量測完整度與生理摘要，活動三項與三面向分數都不顯示（§9.2） */
+    showActivityStats: Boolean = true,
     onBack: () -> Unit
 ) {
     // 固定 420dp 在手機直向/窄螢幕下可能比螢幕還寬；改成「撐滿可用寬度的 92%，但最多 420dp」，
@@ -1024,44 +1063,26 @@ private fun FinalScoreCard(
                 fontSize   = 12.sp,
                 fontWeight = FontWeight.SemiBold
             )
-            Spacer(Modifier.height(4.dp))
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text       = grade,
-                    color      = if (noValidScore) JohnsonColors.TextTertiary else gradeColor(score),
-                    fontSize   = 80.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 80.sp
-                )
-                Text(
-                    text       = if (noValidScore) "無有效評分" else "$score 分",
-                    color      = JohnsonColors.TextPrimary,
-                    fontSize   = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier   = Modifier.padding(bottom = 10.dp)
-                )
-            }
 
-            // 運動時長／消耗卡路里／平均心率／平均體溫：課程結束當下才算出來的運動數據，非即時評分面向。
-            // 2x2 排版，跟下方「各面向評分」格子同一套視覺，四格剛好排滿、不用再處理奇數補位。
-            Spacer(Modifier.height(20.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(JohnsonColors.BorderSubtle)
-            )
+            // ── 主區塊：活動參與（§9.5）────────────────────────────────────────────────
+            // 三面向分數不再是主標題分數；成果卡先回答「有沒有跟著運動、我們量到多少」，
+            // 「動作是否精準符合示範」退到下面的「輔助資訊」。
             Spacer(Modifier.height(16.dp))
-            val metrics = listOf(
-                "運動時長" to durationMs.toTimeString(),
-                "消耗卡路里 kcal" to (caloriesBurned?.toString() ?: "－"),
-                "平均心率 bpm" to (if (avgHeartRate > 0) "$avgHeartRate" else "－"),
-                "平均體溫 ℃" to (avgBodyTemperatureC?.let { "%.1f".format(it) } ?: "－")
-            )
-            metrics.chunked(2).forEach { row ->
+            val participationMetrics = buildList {
+                // seek 過的課程連「參與時間」也不能給：Core 的 exerciseSession 在 seek 過的 session
+                // 是以單調 event time 結算的（stop() 不傳影片位置），跳過去的那段會被算進時長與熱量
+                // ——播 5 分、跳到第 10 分、再播 5 分會顯示約 15 分（Codex QA D2 缺陷 2）。
+                add("參與時間" to if (participationSeeked) "－" else durationMs.toTimeString())
+                if (showActivityStats) {
+                    add("偵測到活動" to if (participationHasData) activeMinutesLabel(activeMs) else "－")
+                    add("最長連續活動" to if (participationHasData) activeMinutesLabel(longestRunMs) else "－")
+                }
+                add("量測完整度" to if (participationHasData) "${(coverage * 100).roundToInt()}%" else "－")
+                if (showActivityStats) {
+                    add("節奏規律" to rhythmRegularityLabel(rhythmRegularity, participationHasData))
+                }
+            }
+            participationMetrics.chunked(3).forEach { row ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1069,13 +1090,60 @@ private fun FinalScoreCard(
                     row.forEach { (label, value) ->
                         FinalMetricStat(value = value, label = label, modifier = Modifier.weight(1f))
                     }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
                 Spacer(Modifier.height(8.dp))
             }
+            Text(
+                text  = when {
+                    participationSeeked ->
+                        "這堂課中途調整過播放進度，參與時間、活動時間、量測完整度與消耗熱量都會失真，因此不顯示。"
+                    !showActivityStats ->
+                        "這堂課的動作較慢，手環目前難以區分「慢動作」與「靜止」，因此不顯示活動時間與節奏。"
+                    else ->
+                        "「參與時間」是實際跟著播放的時間，「偵測到活動」是手環量到動作的時間，兩者回答不同問題。"
+                },
+                color = JohnsonColors.TextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                textAlign = TextAlign.Center
+            )
 
-            // 三個評分面向各自的課程平均分數（節奏/軌跡/片段相似度），App 端自行平均而來
-            if (aspectScores.isNotEmpty()) {
+            // ── 生理摘要：課程結束當下才算出來的運動數據，與動作評分無關 ──────────────────
+            Spacer(Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(JohnsonColors.BorderSubtle)
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text       = "生理摘要",
+                color      = JohnsonColors.TextTertiary,
+                fontSize   = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.2.sp
+            )
+            Spacer(Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    // 熱量與參與時間同一個時基，seek 過就一起不顯示（見上）；
+                    // 平均心率／體溫是 Player 自己對「播放中收到的樣本」取平均，不受 seek 影響。
+                    "消耗卡路里 kcal" to (caloriesBurned?.takeIf { !participationSeeked }?.toString() ?: "－"),
+                    "平均心率 bpm" to (if (avgHeartRate > 0) "$avgHeartRate" else "－"),
+                    "平均體溫 ℃" to (avgBodyTemperatureC?.let { "%.1f".format(it) } ?: "－")
+                ).forEach { (label, value) ->
+                    FinalMetricStat(value = value, label = label, modifier = Modifier.weight(1f))
+                }
+            }
+
+            // ── 輔助資訊：三面向分數（§9.5「三面向分數移到輔助資訊區塊」）──────────────────
+            // showActivityStats = false 的課程（太極）連三面向分數一起不顯示。
+            if (showActivityStats) {
                 Spacer(Modifier.height(16.dp))
                 Box(
                     modifier = Modifier
@@ -1085,39 +1153,57 @@ private fun FinalScoreCard(
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    text       = "各面向評分",
+                    text       = "輔助資訊 · 動作準度",
                     color      = JohnsonColors.TextTertiary,
                     fontSize   = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     letterSpacing = 0.2.sp
                 )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    aspectScores.forEach { (label, s) ->
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(JohnsonColors.Ink600)
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text       = "$s",
-                                color      = JohnsonColors.AccentScore,
-                                fontSize   = 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text  = label,
-                                color = JohnsonColors.TextTertiary,
-                                fontSize = 11.sp,
-                                textAlign = TextAlign.Center
-                            )
+                Spacer(Modifier.height(8.dp))
+                if (noValidScore || aspectScores.isEmpty()) {
+                    // 整堂課都沒有可顯示分數（例如全程靜止、Core 只回低 confidence）時不折成 0 分／D 級（決策 A1）
+                    Text(
+                        text = "無有效評分",
+                        color = JohnsonColors.TextTertiary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                } else {
+                    Text(
+                        text = "$grade · $score 分",
+                        color = gradeColor(score),
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        aspectScores.forEach { (label, s) ->
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(JohnsonColors.Ink600)
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text       = "$s",
+                                    color      = JohnsonColors.AccentScore,
+                                    fontSize   = 24.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text  = label,
+                                    color = JohnsonColors.TextTertiary,
+                                    fontSize = 11.sp,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
+                        repeat((2 - aspectScores.size).coerceAtLeast(0)) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -1138,6 +1224,28 @@ private fun FinalScoreCard(
             Text("←", color = JohnsonColors.TextPrimary, fontSize = 18.sp)
         }
     }
+}
+
+/**
+ * 「偵測到活動 14 分鐘」用的簡短標籤（§9.1 Player 顯示欄）。不足 1 分鐘改用秒，
+ * 避免把 40 秒顯示成「0 分」讓使用者以為完全沒量到。
+ */
+private fun activeMinutesLabel(ms: Long): String = when {
+    ms <= 0L -> "0 分"
+    ms < 60_000L -> "${(ms / 1000L).coerceAtLeast(1L)} 秒"
+    else -> "${(ms / 60_000.0).roundToInt().coerceAtLeast(1)} 分"
+}
+
+/**
+ * 節奏規律性的呈現（§9.1「節奏規律／留白」）。Core 的 `rhythmRegularity` 是使用者自身腕部幅度訊號的
+ * ACF 正規化峰值，**不是**跟拍正確率，所以不顯示成分數；分級門檻沿用 §0-C 的 periodicity 閘門
+ * 0.40–0.70（Core 已把 < 0.40 的窗視為「無週期證據」而不納入平均，所以這裡只需分 0.70 一刀）。
+ * `null` ＝ 合格窗不足、不可判斷 → 留白（顯示「－」）。
+ */
+private fun rhythmRegularityLabel(rhythmRegularity: Float?, hasData: Boolean): String = when {
+    !hasData || rhythmRegularity == null -> "－"
+    rhythmRegularity >= 0.70f -> "規律"
+    else -> "尚可"
 }
 
 /** FinalScoreCard 運動數據列的單一格：與下方「各面向評分」格子同一套視覺，數字改用較低調的主文字色。 */
@@ -1300,6 +1408,8 @@ private fun PlaybackScoringPreview() {
             AccuracyCard(
                 accuracy = 89,
                 aspectScores = mapOf("節奏" to 92, "軌跡" to 86, "順序" to null),
+                activeMs = 843_000L,
+                showActiveTime = true,
                 onStop = {}
             )
         }
@@ -1347,6 +1457,12 @@ private fun PlaybackFinalScorePreview() {
             caloriesBurned = 216,
             avgHeartRate   = 138,
             avgBodyTemperatureC = 33.6f,
+            activeMs       = 931_700L,
+            longestRunMs   = 179_100L,
+            coverage       = 0.983f,
+            rhythmRegularity = 0.537f,
+            participationHasData = true,
+            showActivityStats = true,
             onBack = {}
         )
     }
