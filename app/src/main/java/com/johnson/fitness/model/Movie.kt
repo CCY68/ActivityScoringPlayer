@@ -1,23 +1,36 @@
 package com.johnson.fitness.model
 
 /**
- * 示範課程／影片的展示資料。
+ * 影片牆上的一堂課程。
  *
- * Scoring Demo Player 沒有後端，這份資料寫死在 [com.johnson.fitness.data.MovieRepository]；
- * [id] 同時是 `.maf` 課程檔與課程顯示設定的對照鍵（見 `ScoringEngineFactory`、`CourseDisplaySettings`）。
+ * 資料來源是 `assets/courses.json`（見 [com.johnson.fitness.data.CourseCatalog]），
+ * 由 [com.johnson.fitness.data.MovieRepository] 在執行期載入，**不再寫死在程式碼裡**。
  *
- * [backgroundImageUrl]／[cardImageUrl] 目前一律留空——原本填的是 Google TV 範例專案的示範圖片，
- * 與課程內容無關，已於 PR-P4 移除；畫面在留空時改用純色卡片，之後有實拍縮圖再填回即可。
+ * [id] 就是課程編號 [courseId] 的數值形式（例如 `17421781954041251`）——導覽參數要 Long，
+ * 課程編號是 17 位純數字，塞得進 Long。這樣一來 `.maf` 對應、標註端課程 id 對應都直接用課程編號，
+ * 不必再維護一份「movieId 0…4」的翻譯表。
+ *
+ * [backgroundImageUrl]／[cardImageUrl] 兩個欄位都取自目錄的 `thumbnailUrl`；60 支課程目前都沒有縮圖，
+ * 留空時畫面改用純色卡片（見 HomeScreen 的 CourseCard）。
+ *
+ * [videoUrl] **不在這裡**：播放網址由免驗證端點在執行期查（見
+ * [com.johnson.fitness.data.CoursePlayUrlRepository]），目錄不存也不寫死。
  */
 data class Movie(
     val id: Long = 0,
+    /** 平台課程編號（字串形式，保留前導格式）。 */
+    val courseId: String = "",
     val title: String = "",
     /** 課程分類，首頁用它分列、詳情頁與播放頁當副標顯示。 */
     val category: String = "",
     val description: String = "",
+    /** 課程長度（秒）；0 代表未知。 */
+    val durationSec: Int = 0,
     val backgroundImageUrl: String = "",
     val cardImageUrl: String = "",
-    val videoUrl: String = "",
+    /** 對應的 `assets/motions/` 檔名；null 代表沒有課程檔＝僅播放不評分。 */
+    val mafAsset: String? = null
+) {
     /** 是否有對應的 `.maf` 課程檔；false 代表播放頁會降級成「只播放、不評分」。 */
-    val hasScoringData: Boolean = false
-)
+    val hasScoringData: Boolean get() = mafAsset != null
+}

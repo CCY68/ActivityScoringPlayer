@@ -1,71 +1,88 @@
 package com.johnson.fitness.data
 
+import android.content.Context
 import com.johnson.fitness.model.Movie
 
 /**
- * Scoring Demo Player 的示範課程目錄。
+ * 課程目錄。
  *
- * 這裡是**寫死的示範清單**，不是佔位假資料：Demo 沒有後端，也沒有課程管理 UI，
- * 影片直接指向已上架的串流位址，課程檔 `.maf` 打包在 `assets/motions/`。
+ * 內容來自 `assets/courses.json`（本專案要支援的 60 支課程影片），在執行期解析後快取；
+ * PR-P4 之前那份寫死在程式碼裡的示範清單已經整份拿掉。
  *
- * - `id` 0–2：已完成動作標註、有 `.maf` 的課程，配戴手環時會實際評分
- *   （對照表在 [ScoringEngineFactory] 與 [CourseDisplaySettings]）。
- * - `id` 3–4：沒有 `.maf` 的播放路徑驗證影片，播放頁會降級成「只播放、不評分」（`isScoring = false`）。
+ * - 播放網址**不在目錄裡**：由 [CoursePlayUrlRepository] 向免驗證端點查（`course/info`）。
+ * - `.maf` 對應由 [CourseCatalog.resolveMafAsset] 依 `mafAsset` 或課程編號比對 `assets/motions/`，
+ *   不再有寫死的 movieId 對照表。
  *
- * 新增課程時：這裡加一筆 → `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID` 補檔名 →
- * `CourseDisplaySettings.ANNOTATION_COURSE_ID_BY_MOVIE_ID` 補標註端課程 id。
+ * 載入失敗會保留成 [CatalogResult.Failure]，首頁據此顯示錯誤畫面（**不會靜默變成空清單**）。
  */
 object MovieRepository {
 
-    val movies: List<Movie> = listOf(
-        Movie(
-            id = 0L,
-            title = "銀髮族健康操",
-            category = "銀髮運動",
-            description = "坐姿與站姿交替的全身活動操，以上肢擺動、開合與踏步為主。" +
-                "已完成動作標註，配戴手環即可即時評分。",
-            videoUrl = "https://75d61619-eeb7-4283-b5ed-36e1930a7dcf.cdn.blendvision.com/" +
-                "6ddcc065-ee8f-4449-a4c7-f9d9eb11a978/vod/cd5651d3-9c24-4930-8f0f-0c6c8ecedc15/vod/hls.m3u8",
-            hasScoringData = true
-        ),
-        Movie(
-            id = 1L,
-            title = "初階瑜珈體位法 1 - 英雄1 & 英雄2",
-            category = "瑜珈",
-            description = "英雄一式與英雄二式的入門教學，著重站姿穩定與上肢延展。已完成動作標註。",
-            videoUrl = "https://75d61619-eeb7-4283-b5ed-36e1930a7dcf.cdn.blendvision.com/" +
-                "6ddcc065-ee8f-4449-a4c7-f9d9eb11a978/vod/209581d1-c9cb-477e-aaa9-386b9033219e/vod/hls.m3u8",
-            hasScoringData = true
-        ),
-        Movie(
-            id = 2L,
-            title = "太極藝術體驗課 (中文字幕)",
-            category = "太極",
-            description = "太極入門體驗，動作緩慢連貫。已完成動作標註；" +
-                "慢速動作的靜止判定仍在調校，成果卡不顯示活動統計三項（見 CourseDisplaySettings）。",
-            videoUrl = "https://75d61619-eeb7-4283-b5ed-36e1930a7dcf.cdn.blendvision.com/" +
-                "6ddcc065-ee8f-4449-a4c7-f9d9eb11a978/vod/763e63bb-5ad2-43e5-9d7f-695f1ece3ec9/vod/hls.m3u8",
-            hasScoringData = true
-        ),
-        Movie(
-            id = 3L,
-            title = "MP4 播放測試",
-            category = "播放測試",
-            description = "單一 MP4 片段，用來驗證非串流的播放路徑。沒有 `.maf`，播放頁為只播放、不評分模式。",
-            videoUrl = "https://storage.googleapis.com/exoplayer-test-media-1/gen-3/screens/" +
-                "dash-vod-single-segment/video-137.mp4"
-        ),
-        Movie(
-            id = 4L,
-            title = "HLS 串流播放測試",
-            category = "播放測試",
-            description = "多位元率 HLS 串流，用來驗證換軌與緩衝行為。沒有 `.maf`，播放頁為只播放、不評分模式。",
-            videoUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"
+    sealed interface CatalogResult {
+        data class Success(val movies: List<Movie>) : CatalogResult
+        data class Failure(val message: String) : CatalogResult
+    }
+
+    private const val CATALOG_ASSET = "courses.json"
+    private const val MOTIONS_DIR = "motions"
+
+    @Volatile
+    private var cached: List<Movie>? = null
+
+    /** 只有測試會用到；正式流程不需要重設。 */
+    internal fun resetForTest() {
+        cached = null
+    }
+
+    /**
+     * 載入目錄（成功後快取）。會讀 assets，呼叫端請放在背景執行緒。
+     * [forceReload] 供錯誤畫面的「重試」使用。
+     */
+    fun load(context: Context, forceReload: Boolean = false): CatalogResult {
+        if (!forceReload) {
+            cached?.let { return CatalogResult.Success(it) }
+        }
+        val assets = context.applicationContext.assets
+        val text = runCatching {
+            assets.open(CATALOG_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+        }.getOrElse {
+            return CatalogResult.Failure("讀不到課程目錄 assets/$CATALOG_ASSET：${it.message ?: it::class.java.simpleName}")
+        }
+        val mafAssets = runCatching { assets.list(MOTIONS_DIR)?.toList().orEmpty() }.getOrDefault(emptyList())
+        val entries = try {
+            CourseCatalog.parse(text)
+        } catch (e: CourseCatalogException) {
+            return CatalogResult.Failure(e.message ?: "課程目錄格式錯誤")
+        }
+        val movies = entries.map { entry -> entry.toMovie(mafAssets) }
+        cached = movies
+        return CatalogResult.Success(movies)
+    }
+
+    /** 給沒有機會先跑 [load] 的畫面（詳情／播放頁重建）用：需要時自己補載一次。 */
+    fun movies(context: Context): List<Movie> {
+        cached?.let { return it }
+        return (load(context) as? CatalogResult.Success)?.movies.orEmpty()
+    }
+
+    fun getMovieById(context: Context, id: Long): Movie? = movies(context).find { it.id == id }
+
+    /** 首頁分列用；依 [Movie.category] 分組，順序照目錄裡第一次出現的先後。 */
+    fun moviesByCategory(context: Context): Map<String, List<Movie>> =
+        movies(context).groupBy { it.category }
+
+    // courseId 塞不塞得進 Long 已經在 CourseCatalog.parse 檢查過（不合格會整份目錄失敗，
+    // 不會偷偷少一支課），這裡可以安全轉換。
+    private fun CourseEntry.toMovie(mafAssets: List<String>): Movie {
+        return Movie(
+            id = courseId.toLong(),
+            courseId = courseId,
+            title = title,
+            category = category,
+            description = "",
+            durationSec = durationSec,
+            backgroundImageUrl = thumbnailUrl,
+            cardImageUrl = thumbnailUrl,
+            mafAsset = CourseCatalog.resolveMafAsset(courseId, mafAsset, mafAssets)
         )
-    )
-
-    fun getMovieById(id: Long): Movie? = movies.find { it.id == id }
-
-    /** 首頁分列用；依 [Movie.category] 分組，順序照 [movies] 第一次出現的先後。 */
-    fun moviesByCategory(): Map<String, List<Movie>> = movies.groupBy { it.category }
+    }
 }

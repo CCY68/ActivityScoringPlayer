@@ -1,0 +1,486 @@
+{
+  "說明": "Welltivity Scoring Demo Player 的課程目錄。欄位說明與新增課程步驟見專案 README.md「課程目錄（courses.json）」一節。courseId 是必填的課程編號；thumbnailUrl 與 mafAsset 留空字串代表沒有縮圖／沒有評分課程檔。",
+  "version": 1,
+  "courses": [
+    {
+      "courseId": "17421781954041251",
+      "title": "銀髮族健康操",
+      "category": "伸展與活動度",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": "銀髮族健康操-17421781954041251.maf"
+    },
+    {
+      "courseId": "17421784957981721",
+      "title": "慢活舒心氧身操2-2",
+      "category": "有氧運動",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421794088121661",
+      "title": "慢活舒心氧身操2-1",
+      "category": "有氧運動",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421796601051971",
+      "title": "跨界台式舞蹈有氧-樂齡友善舞蹈",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421800176671651",
+      "title": "樂齡動一動",
+      "category": "有氧操／有氧舞蹈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421807137781171",
+      "title": "Barre系列訓練5-1 | 暖身與心肺 (無輔具)",
+      "category": "皮拉提斯",
+      "durationSec": 1140,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421827318911801",
+      "title": "樂天女孩【樂天燃脂派對】-Welltivity soho",
+      "category": "有氧操／有氧舞蹈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421828388001711",
+      "title": "Barre全身心肺訓練 (無輔具)",
+      "category": "皮拉提斯",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421834977031131",
+      "title": "開闊心胸流動瑜珈(中階)",
+      "category": "瑜珈",
+      "durationSec": 1320,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421836096281451",
+      "title": "開髖舒展流動瑜珈(進階)",
+      "category": "瑜珈",
+      "durationSec": 1260,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421914658801191",
+      "title": "初階瑜珈體位法 1 - 英雄1 & 英雄2",
+      "category": "瑜珈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": "初階瑜珈-17421914658801191.maf"
+    },
+    {
+      "courseId": "17421915167251241",
+      "title": "喚醒小肚肚-腹部核心肌力訓練",
+      "category": "動態恢復",
+      "durationSec": 1260,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421915743881461",
+      "title": "初階瑜珈體位法 2-後彎弓式、駱駝式",
+      "category": "瑜珈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421916640641841",
+      "title": "駝背的救星",
+      "category": "動態恢復",
+      "durationSec": 1020,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421919846741971",
+      "title": "野性舞蹈有氧7",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421920769821191",
+      "title": "野性舞蹈有氧6",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421921750541591",
+      "title": "野性舞蹈有氧5",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421922777451961",
+      "title": "野性舞蹈有氧4",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421925295891831",
+      "title": "活力拳擊有氧-速度感訓練",
+      "category": "拳擊",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421930315581911",
+      "title": "晚安助眠舒緩伸展瑜珈",
+      "category": "瑜珈",
+      "durationSec": 1260,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421944795271861",
+      "title": "下班後的修復20分鐘",
+      "category": "動態恢復",
+      "durationSec": 2220,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421948504831591",
+      "title": "早晨儀式30分鐘 Morning Ritual 30",
+      "category": "動態恢復",
+      "durationSec": 1740,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421951251531101",
+      "title": "整合活動性訓練3-2 | 下肢關節活動度與修復訓練",
+      "category": "伸展與筋膜放鬆",
+      "durationSec": 2100,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421953378761751",
+      "title": "早安瑜珈綜合練習-輕流動、柔軟度、肌耐力",
+      "category": "瑜珈",
+      "durationSec": 1260,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421957986921371",
+      "title": "女人輕盈體態：骨盆活化",
+      "category": "瑜珈",
+      "durationSec": 1320,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421960667871121",
+      "title": "拳擊有氧 1 [ 熱汗拳擊有氧系列-初階 ]",
+      "category": "拳擊",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17421960769621981",
+      "title": "流行嘻哈有氧-基礎節奏",
+      "category": "舞蹈有氧",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427841258621371",
+      "title": "流動瑜珈之旅 Flow-112",
+      "category": "瑜珈",
+      "durationSec": 1920,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427881818101471",
+      "title": "緩慢流動瑜珈 (中文字幕) Slow Flow-110",
+      "category": "瑜珈",
+      "durationSec": 1320,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427926301621971",
+      "title": "舒緩流動瑜珈 Slow Flow-109",
+      "category": "瑜珈",
+      "durationSec": 1320,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427948009371361",
+      "title": "身心舒暢動瑜珈 (中文字幕)",
+      "category": "瑜珈",
+      "durationSec": 1740,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427950346331851",
+      "title": "熱力嘻哈有氧 (中文字幕)",
+      "category": "舞蹈有氧",
+      "durationSec": 1680,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427953216921531",
+      "title": "背部舒緩與放鬆練習 Relax-2-Caro",
+      "category": "瑜珈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427961194261761",
+      "title": "脊椎延伸 and 開肩練習-關注背痛問題 Back-1-Caro",
+      "category": "動態恢復",
+      "durationSec": 1320,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427969742971331",
+      "title": "熱情拉丁有氧 (中文字幕)",
+      "category": "舞蹈有氧",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427969764891951",
+      "title": "靜態舒壓瑜珈-適合睡前練習 Relax-2-Franzi",
+      "category": "瑜珈",
+      "durationSec": 1260,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427988465481071",
+      "title": "拉丁搖擺有氧 (中文字幕)",
+      "category": "舞蹈有氧",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427993354001551",
+      "title": "平衡身心太極拳 (中文字幕)",
+      "category": "伸展與活動度",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427994607551241",
+      "title": "療癒身心伸展 (中文字幕)",
+      "category": "伸展與活動度",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427996244371461",
+      "title": "動感雷鬼有氧 (中文字幕)",
+      "category": "舞蹈有氧",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17427998955671861",
+      "title": "強化脊椎運動 (中文字幕)",
+      "category": "動態恢復",
+      "durationSec": 1680,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17428004702081021",
+      "title": "性感嘻哈有氧 (中文字幕)",
+      "category": "舞蹈有氧",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17428046223601321",
+      "title": "太極藝術體驗課 (中文字幕)",
+      "category": "太極",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": "太極藝術體驗課-17428046223601321.maf"
+    },
+    {
+      "courseId": "17428054585091311",
+      "title": "活力有氧 (中文字幕)",
+      "category": "有氧運動",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17428056550111121",
+      "title": "媽咪也享瘦 (中文字幕)",
+      "category": "有氧運動",
+      "durationSec": 1560,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17428056799661491",
+      "title": "完美運動鍛鍊 (中文字幕)",
+      "category": "有氧運動",
+      "durationSec": 3420,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17428064878661851",
+      "title": "舒壓健康瑜珈 (中文字幕)",
+      "category": "瑜珈",
+      "durationSec": 3300,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17483318678841081",
+      "title": "身心覺察瑜珈1-呼吸與放鬆",
+      "category": "瑜珈",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17546464527771661",
+      "title": "毛巾有氧甩脂操 熱身出擊：毛巾啟動流動感",
+      "category": "舞蹈有氧",
+      "durationSec": 1020,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549028819461171",
+      "title": "毛巾有氧甩脂操 全身出力：燃脂節奏快跟上",
+      "category": "舞蹈有氧",
+      "durationSec": 960,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549036943661321",
+      "title": "毛巾有氧甩脂操 雕塑升級：毛巾有氧全身雕塑",
+      "category": "舞蹈有氧",
+      "durationSec": 960,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549047936811391",
+      "title": "節奏啟動：跟著音樂動起來！",
+      "category": "舞蹈有氧",
+      "durationSec": 900,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549050029021931",
+      "title": "燃脂加速：跳進高能動感",
+      "category": "舞蹈有氧",
+      "durationSec": 960,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549051700061481",
+      "title": "曲線塑形：有氧雕塑不停歇",
+      "category": "舞蹈有氧",
+      "durationSec": 960,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549066530301871",
+      "title": "揮拳出擊：打出自信節奏",
+      "category": "拳擊",
+      "durationSec": 1020,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549067693401991",
+      "title": "拳力以赴：釋放女力魅力",
+      "category": "拳擊",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17549069010601181",
+      "title": "Hit It! 拳動全場",
+      "category": "拳擊",
+      "durationSec": 1020,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17609323131301091",
+      "title": "整合活動性訓練3-1 | 呼吸和核心",
+      "category": "伸展與筋膜放鬆",
+      "durationSec": 1800,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17609325259491531",
+      "title": "整合活動性訓練3-3 | 上半身肩關節活動度",
+      "category": "伸展與筋膜放鬆",
+      "durationSec": 1620,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    },
+    {
+      "courseId": "17676060542431791",
+      "title": "走路即運動：啟動核心、重塑曲線的步態修復",
+      "category": "動態恢復",
+      "durationSec": 1020,
+      "thumbnailUrl": "",
+      "mafAsset": ""
+    }
+  ]
+}
