@@ -35,6 +35,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 日期 | DeviceModule commit | 大小 | 備註 |
 |---|---|---|---|
 | 2026-09-10 | `0bf8604`（main） | 138,447 bytes | B20 時戳改以裝置時鐘為主（`ImuData.deviceTimestampUs` 新增）、104→25 Hz 改格點重取樣、重連沿用時間軸、`setImuSampleRate()` 重連後自動重套 |
+| 2026-09-11 | `dev_wdl`（fix/late-frame-reorder） | 161,181 bytes | 亂序遲到幀整幀丟棄，不再誤判為感測器重開（實錄兩筆同毫秒樣本的來源）；含停頓診斷 API |
 
 ### 送進引擎的時間軸（P5）
 
