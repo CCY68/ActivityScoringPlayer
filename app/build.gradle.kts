@@ -30,7 +30,8 @@ android {
                 .standardOutput.asText.get().trim()
         }.getOrDefault("unknown")
         val gitDirty = runCatching {
-            providers.exec { commandLine("git", "status", "--porcelain") }
+            // 只看已追蹤檔：未追蹤的雜檔（例如本機的 AGENTS.override.md）不影響建置內容
+            providers.exec { commandLine("git", "status", "--porcelain", "--untracked-files=no") }
                 .standardOutput.asText.get().isNotBlank()
         }.getOrDefault(false)
         buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
