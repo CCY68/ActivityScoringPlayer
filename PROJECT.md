@@ -13,8 +13,9 @@
     不再需要獨立的 `maf-format.jar`）；
   - `device-module.aar`（Module A 手環連線，來源 repo `WtivityDeviceModule`）；
   - 本 repo 只寫**範例程式**：播放、時間軸換算、HUD、成果卡、CSV 錄製與回放。
-- **不含**：評分演算法、BLE 實作、後端。課程清單寫死在 `data/MovieRepository.kt`，
-  `.maf` 課程檔與內容金鑰打包在 `app/src/main/assets/`，App 不呼叫任何 API。
+- **不含**：評分演算法、BLE 實作、會員後端。課程目錄是 `app/src/main/assets/courses.json`（60 支課程），
+  `.maf` 課程檔與內容金鑰打包在 `app/src/main/assets/`；唯一呼叫的 API 是 Welltivity 的**免驗證**
+  課程資訊端點（`open/course/info`），只用來查影片播放網址。
 
 ## 注意事項
 

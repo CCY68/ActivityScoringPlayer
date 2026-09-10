@@ -10,7 +10,8 @@ AI 代理在本 repo 作業的守則。工作區通用守則見上層 [`../AGENT
 - Android / Google TV（Kotlin、Compose for TV）的**示範 App**。
 - 組成＝ **2 個 AAR ＋ 使用範例**：`activity-scoring-core.aar`（Module B，來源 `ActivityScoringCore`）、
   `device-module.aar`（Module A，來源 `WtivityDeviceModule`），本 repo 只寫接線與畫面。
-- 沒有後端；課程清單寫死在 `data/MovieRepository.kt`，`.maf` 與金鑰在 `app/src/main/assets/`。
+- 沒有會員後端；課程目錄是 `app/src/main/assets/courses.json`（60 支課程，`data/CourseCatalog.kt` 解析），
+  `.maf` 與金鑰在 `app/src/main/assets/`；唯一呼叫的 API 是免驗證的課程資訊端點（查播放網址）。
 
 ## 不可違反
 
@@ -19,8 +20,9 @@ AI 代理在本 repo 作業的守則。工作區通用守則見上層 [`../AGENT
    （日期／來源 commit／檔案大小／sha256 前 16 碼），並在 commit 訊息寫清楚。
 3. 健康與 IMU 走**獨立 listener**；健康數據直送 App，不經評分引擎。心率不進入動作分數。
 4. 送進 `ScoringEngine.submitImuSample()` 的時戳一律是**影片時間**；丟樣以缺口進 Core，**不補樣本**。
-5. `.maf` 檔名與 `movieId` 的對照在 `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID`，
-   課程顯示設定在 `CourseDisplaySettings`；新增課程三處都要補。
+5. `movieId` **就是課程編號**（`courses.json` 的 `courseId`）；`.maf` 對應由目錄的 `mafAsset` 或
+   `-<courseId>.maf` 檔名尾碼決定（`CourseCatalog.resolveMafAsset`），**不要再加寫死的對照表**。
+   新增課程＝改 `courses.json`（＋放 `.maf`），程式碼不動。
 6. 對外文案限「心率與運動強度監看」，不得出現醫療／診斷／急救字樣。
 7. 太極課程的 HUD／成果卡顯示規則（`CourseDisplaySettings`）尚未定案，不要自行調整。
 

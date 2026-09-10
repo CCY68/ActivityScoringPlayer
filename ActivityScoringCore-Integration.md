@@ -145,7 +145,7 @@ App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` �
 ```
 PlaybackViewModel (app)
   → ScoringEngineFactory.loadMaf(engine, movieId)
-      ├─ 讀 assets: motions/<課程名>-<課程 id>.maf（MAF_FILE_BY_MOVIE_ID 對照）
+      ├─ 讀 assets: motions/<課程名>-<課程 id>.maf（由 courses.json 的 mafAsset／courseId 決定）
       └─ 依 payload.key_id 讀 assets: keys/content-key.<key_id>.hex
   → ScoringEngine.loadMaf(bytes, decryptor)             // AES-GCM JSON 信封解密
   → MafLoader.load(...)                                 // maf-format，本文件的主角
@@ -161,9 +161,10 @@ PlaybackViewModel (app)
 ### `.maf` 檔案放哪裡
 
 固定目錄：`app/src/main/assets/motions/`。檔名沿用標註端交付的原始檔名
-`<課程名>-<課程 id>.maf`，由 `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID` 對照到 `MovieRepository`
-的 `movieId`（目前 0＝銀髮族健康操、1＝初階瑜珈、2＝太極藝術體驗課；3、4 為沒有 `.maf` 的播放測試影片）。
-對照表與各檔名見 `app/src/main/assets/motions/README.md`。
+`<課程名>-<課程 id>.maf`。**沒有寫死的對照表**：課程目錄 `app/src/main/assets/courses.json` 的
+`mafAsset` 指定檔名，留空時由 `CourseCatalog.resolveMafAsset()` 依 `courseId` 比對檔名尾碼。
+Player 的 `movieId` **就是課程編號**（例如 `17421781954041251`），所以課程顯示設定
+（`CourseDisplaySettings`）也直接用課程編號當 key。各檔名見 `app/src/main/assets/motions/README.md`。
 
 加密內容金鑰固定放在 `app/src/main/assets/keys/content-key.<key_id>.hex`。例如 MAF 內的
 `payload.key_id` 是 `aswt-maf-2026-08-k1`，檔名就必須是
@@ -175,12 +176,11 @@ PlaybackViewModel (app)
 
 1. 把檔案放到 `app/src/main/assets/motions/`（檔名照標註端交付的原樣即可）。
 2. 依 `payload.key_id` 命名內容金鑰，放到 `app/src/main/assets/keys/content-key.<key_id>.hex`。
-3. 在 `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID` 補上 `movieId → 檔名`；
-   `movieId` 要跟 `MovieRepository.kt` 的課程清單對得上，
-   課程顯示設定（`CourseDisplaySettings`）也一併補標註端課程 id。
+3. 確認 `app/src/main/assets/courses.json` 裡有同一個 `courseId` 的課程；`mafAsset` 可填檔名，
+   也可以留空讓 App 自己以 `-<courseId>.maf` 配對。**不需要改任何 Kotlin 程式碼。**
 4. Rebuild 裝進 APK。`PlaybackViewModel` 會自動嘗試載入，`state.isScoring == true` 代表載入成功進入評分模式。
 
-`MovieRepository` 裡 `hasScoringData = false` 的影片（播放測試片）**不會**嘗試載入 MAF，
+課程目錄裡配不到 `.maf` 的課程（`hasScoringData = false`）**不會**嘗試載入 MAF，
 直接進 `PLAY_WITHOUT_SCORING`；「評分資料載入失敗」畫面只留給「預期有 `.maf` 卻載不起來」的情況。
 
 目前**沒有匯入 UI**（無檔案選擇器、無 SAF/URI 讀取、無網路下載），只認 assets 裡的固定路徑。

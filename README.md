@@ -11,12 +11,13 @@ Google TV 示範 App：把 **`activity-scoring-core.aar`（Module B 評分引擎
 | `activity-scoring-core.aar`（含 MAF 解析／解密，不再需要獨立 `maf-format.jar`） | `ActivityScoringCore` | `app/libs/` |
 | `device-module.aar`（Module A DeviceModule） | `WtivityDeviceModule` | `app/libs/` |
 | `.maf` 課程檔與內容金鑰 | `ActivityScoringWebTool` 標註端 | `app/src/main/assets/motions/`、`assets/keys/` |
+| 課程目錄（60 支課程） | 甲方課程清單 | `app/src/main/assets/courses.json` |
 | 範例程式（播放、接線、HUD、成果卡、CSV 錄製與回放） | 本 repo | `app/src/main/java/com/johnson/fitness/` |
 
 - **平台**：Android / Google TV（Kotlin、Compose for TV）
 - **主硬體**：DoctorOne B20（BLE，單腕 IMU + PPG）
-- **沒有後端**：課程清單寫死在 `data/MovieRepository.kt`，`.maf` 打包在 assets，
-  影片由 ExoPlayer 直接取串流位址播放；App **不呼叫任何 API**。
+- **沒有會員後端**：課程目錄是打包在 App 裡的 `assets/courses.json`（見下節），`.maf` 打包在 assets；
+  唯一會呼叫的 API 是 Welltivity 的**免驗證**課程資訊端點，用來查影片的播放網址。
 
 ## 文件
 
@@ -43,11 +44,68 @@ Google TV 示範 App：把 **`activity-scoring-core.aar`（Module B 評分引擎
 
 | 畫面 | 說明 |
 |---|---|
-| 首頁 | 依課程分類分列的示範課程（3 堂已標註課程 + 2 支播放測試影片） |
+| 首頁 | 影片牆：依課程分類分列（每列橫向捲動、D-pad 導覽、焦點放大），卡片顯示標題、時長與「可評分／僅播放」 |
 | 詳情頁 | 課程說明、是否有 `.maf`、「開始課程」→ 選擇播放模式（正常 B20／Replay CSV）與是否收錄 CSV |
 | 播放頁 | 影片 + 即時評分 HUD（三面向）＋ 心率區間；結束顯示成果卡 |
 | 設定 | 藍牙配對、使用者資料（生理參數，見下） |
 | 藍牙 | 掃描、連線、記住上次裝置 |
+
+## 課程目錄（`courses.json`）
+
+首頁的影片牆直接讀 `app/src/main/assets/courses.json`。**這份檔案是給非工程師維護的**：
+加一支課程＝在 `courses` 陣列裡多加一個物件，存檔後重新安裝 App 即可，不必改任何程式碼。
+
+```json
+{
+  "version": 1,
+  "courses": [
+    {
+      "courseId": "17421781954041251",
+      "title": "銀髮族健康操",
+      "category": "伸展與活動度",
+      "durationSec": 1200,
+      "thumbnailUrl": "",
+      "mafAsset": "銀髮族健康操-17421781954041251.maf"
+    }
+  ]
+}
+```
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `courseId` | ✅ | 平台的課程編號（純數字字串）。**App 內部就用它當課程識別碼**，也用來查播放網址與配對 `.maf`。 |
+| `title` | ✅ | 卡片與詳情頁顯示的課程名稱。 |
+| `category` | | 首頁分列用的分類名稱；留空會歸到「其他課程」。同名的課程會排在同一列。 |
+| `durationSec` | | 課程長度（秒）。留空或 0 時卡片不顯示時長。 |
+| `thumbnailUrl` | | 卡片縮圖網址。**目前 60 支都留空**，留空時卡片用依課程編號決定的純色底＋文字。 |
+| `mafAsset` | | `app/src/main/assets/motions/` 底下的 `.maf` 檔名。留空時 App 會自動找檔名以 `-<courseId>.maf` 結尾的檔案；找不到＝這支課程「僅播放、不評分」。**填了檔名卻沒放檔案**時播放頁會顯示「評分資料載入失敗」（不會偷偷降級成純播放），以免缺檔沒人發現。 |
+
+**播放網址不寫在目錄裡。** 網址會隨 CDN 重新編碼而改變，所以每次要播才向免驗證端點查：
+
+```
+GET https://asia.welltivity.com.tw/api/app/open/course/info?courseId=<courseId>
+→ {"code":200,"data":{"playUrl":"https://….m3u8","courseTitle":"…"}}
+```
+
+（`data/CoursePlayUrlRepository.kt`；同一次執行中查過會快取。查不到時播放頁會顯示「取得播放網址失敗」與重試，
+不會停在黑畫面。串流本身播不起來（HLS 404／CDN 故障／播到一半斷網）時，畫面會疊出「播放失敗」對話框，
+重試會**略過快取重查網址**並從失敗當下的位置接回去，不重建播放器、不重設評分引擎。）
+
+### 加一支已標註課程（可評分）
+
+1. 把標註端交付的 `<課程名>-<課程編號>.maf` 放進 `app/src/main/assets/motions/`。
+2. 確認 `courses.json` 裡有同一個 `courseId` 的課程；`mafAsset` 可以填檔名，也可以留空讓 App 自己配對。
+3. 內容金鑰（`assets/keys/content-key.<key_id>.hex`）要涵蓋這支 `.maf` 的 `key_id`。
+4. 重新安裝 App。首頁最上面那列「可評分課程」會出現這支課程，卡片標記變成「可評分」。
+
+`./gradlew :app:testDebugUnitTest` 會檢查目錄格式、`courseId` 不重複，以及
+「`courses.json` 寫到的 `.maf` 都存在」「`assets/motions/` 的每支 `.maf` 都有課程對得上」
+（`CoursesAssetTest`），格式打錯不用裝機就知道。
+
+### 目錄壞掉會怎樣
+
+`courses.json` 讀不到或格式錯誤時，首頁顯示**「課程目錄載入失敗」錯誤畫面**（含錯在第幾筆的說明與「重試」），
+**不會**變成空白首頁。
 
 ### 使用者資料（生理參數）
 
