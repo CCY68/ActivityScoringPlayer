@@ -6,7 +6,6 @@ import com.fitness.device.api.IDeviceManager
 import com.johnson.fitness.data.DeviceAutoConnect
 import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.ScoringEngineFactory
-import com.johnson.fitness.http.NetworkModule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,12 +26,6 @@ class FitnessApp : Application() {
 
     val scoringEngineFactory: ScoringEngineFactory by lazy {
         ScoringEngineFactory(this)
-    }
-
-    val videoResource by lazy {
-        val client = NetworkModule.provideOkHttpClient()
-        val retrofit = NetworkModule.provideRetrofit(client)
-        NetworkModule.provideVideoResource(retrofit)
     }
 
     override fun onCreate() {

@@ -2,7 +2,6 @@ package com.johnson.fitness.http
 
 import com.google.gson.GsonBuilder
 import com.johnson.fitness.BuildConfig
-import com.johnson.fitness.http.resource.IVideoResource
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
@@ -14,6 +13,13 @@ import java.util.concurrent.SynchronousQueue
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
+/**
+ * 通用的 OkHttp／Retrofit 建構工具。
+ *
+ * PR-P4 之後**沒有任何呼叫端**（Demo 不連後端，見 [com.johnson.fitness.http.resource.IVideoResource]）：
+ * 原本寫死的 `baseUrl = BuildConfig.API_URL`（股票站台）已改成由呼叫端傳入，
+ * `provideVideoResource()` 也一併移除。整包 `http/` 建議刪除，刪檔需使用者確認。
+ */
 object NetworkModule {
 
     fun provideOkHttpClient(): OkHttpClient {
@@ -45,16 +51,15 @@ object NetworkModule {
             .build()
     }
 
-    fun provideRetrofit(client: OkHttpClient): Retrofit {
+    /** [baseUrl] 由呼叫端指定；本 App 目前沒有後端，不會走到這裡。 */
+    fun provideRetrofit(client: OkHttpClient, baseUrl: String): Retrofit {
         val gson = GsonBuilder()
             .registerTypeAdapter(BigDecimal::class.java, BigDecimalTypeAdapter())
             .create()
         return Retrofit.Builder()
-            .baseUrl(BuildConfig.API_URL)
+            .baseUrl(baseUrl)
             .client(client)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
     }
-
-    fun provideVideoResource(retrofit: Retrofit): IVideoResource = retrofit.create(IVideoResource::class.java)
 }
