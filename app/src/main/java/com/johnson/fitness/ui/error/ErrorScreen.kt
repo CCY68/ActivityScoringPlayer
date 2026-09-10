@@ -45,8 +45,8 @@ fun ErrorScreen(onDismiss: () -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Text(text = "An error occurred", fontSize = 24.sp, color = Color.White)
-                Button(onClick = onDismiss, modifier = Modifier.touchClickable(onClick = onDismiss)) { Text("Dismiss") }
+                Text(text = "發生錯誤", fontSize = 24.sp, color = Color.White)
+                Button(onClick = onDismiss, modifier = Modifier.touchClickable(onClick = onDismiss)) { Text("關閉") }
             }
         } else {
             CircularProgressIndicator(color = Color.White)

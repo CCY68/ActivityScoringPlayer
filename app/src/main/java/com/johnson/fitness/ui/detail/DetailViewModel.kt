@@ -21,19 +21,16 @@ class DetailViewModel(private val movieId: Long) : ViewModel() {
     init {
         _state.value = DetailState(
             movie = MovieRepository.getMovieById(movieId),
-            relatedMovies = MovieRepository.movies.shuffled().take(10),
+            // 「其他課程」就是目錄裡除了本堂以外的課，維持固定順序（不亂數、不重複填充）。
+            relatedMovies = MovieRepository.movies.filter { it.id != movieId },
             isLoading = false
         )
     }
 
     fun onIntent(intent: DetailIntent) {
         when (intent) {
-            is DetailIntent.WatchTrailer ->
+            is DetailIntent.StartCourse ->
                 viewModelScope.launch { _effect.send(DetailEffect.NavigateToPlayback) }
-            is DetailIntent.Rent ->
-                viewModelScope.launch { _effect.send(DetailEffect.ShowToast("Rent: ${_state.value.movie?.title}")) }
-            is DetailIntent.Buy ->
-                viewModelScope.launch { _effect.send(DetailEffect.ShowToast("Buy: ${_state.value.movie?.title}")) }
             is DetailIntent.RelatedMovieClicked ->
                 viewModelScope.launch { _effect.send(DetailEffect.NavigateToDetail(intent.movie.id)) }
         }

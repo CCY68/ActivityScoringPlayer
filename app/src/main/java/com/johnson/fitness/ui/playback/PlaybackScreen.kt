@@ -249,8 +249,8 @@ fun PlaybackScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     LiveBadge()
-                    val coach = state.movie?.studio.orEmpty()
-                    if (coach.isNotBlank()) CoachBadge(coach)
+                    val category = state.movie?.category.orEmpty()
+                    if (category.isNotBlank()) CategoryBadge(category)
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -568,8 +568,9 @@ private fun LiveBadge() {
     }
 }
 
+/** 顯示課程分類（原本掛的是示範用的教練名，見 MovieRepository 的 PR-P4 清理）。 */
 @Composable
-private fun CoachBadge(name: String) {
+private fun CategoryBadge(name: String) {
     Row(
         modifier = Modifier
             .background(JohnsonColors.Ink700, RoundedCornerShape(999.dp))
@@ -584,7 +585,7 @@ private fun CoachBadge(name: String) {
                 .background(JohnsonColors.Gray300, CircleShape)
         )
         Text(
-            text = "COACH ${name.uppercase()}",
+            text = name,
             color = JohnsonColors.TextSecondary,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
@@ -1359,7 +1360,7 @@ private fun PlaybackScoringPreview() {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     LiveBadge()
-                    CoachBadge("Vivian")
+                    CategoryBadge("高強度間歇")
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(

@@ -2,7 +2,6 @@
 
 package com.johnson.fitness.ui.home
 
-import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -73,7 +72,6 @@ fun HomeScreen(
             when (effect) {
                 is HomeEffect.NavigateToDetail -> onMovieClick(effect.movieId)
                 is HomeEffect.NavigateToError -> onErrorClick()
-                is HomeEffect.ShowToast -> Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -88,13 +86,15 @@ fun HomeScreen(
 
         // Main content
         Box(modifier = Modifier.fillMaxSize()) {
-            // Background image with gradient scrim
-            GlideImage(
-                model = state.backgroundUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            // Background image with gradient scrim（沒有縮圖時只留下面的漸層底色）
+            if (state.backgroundUrl.isNotBlank()) {
+                GlideImage(
+                    model = state.backgroundUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             // Dark overlay so text is legible
             Box(
                 modifier = Modifier
@@ -122,12 +122,9 @@ fun HomeScreen(
                         onMovieClicked = { viewModel.onIntent(HomeIntent.MovieClicked(it)) }
                     )
                 }
-                // Preferences / utility row
+                // 示範用工具列
                 item {
-                    PreferencesRail(
-                        onErrorClick = { viewModel.onIntent(HomeIntent.ErrorClicked) },
-                        onPreferenceClick = { viewModel.onIntent(HomeIntent.PreferenceClicked(it)) }
-                    )
+                    DemoToolsRail(onErrorClick = { viewModel.onIntent(HomeIntent.ErrorClicked) })
                 }
             }
         }
@@ -319,12 +316,14 @@ private fun ClassCard(movie: Movie, onFocused: () -> Unit, onClick: () -> Unit) 
                 .clip(RoundedCornerShape(20.dp))
                 .border(1.dp, JohnsonColors.BorderSubtle, RoundedCornerShape(20.dp))
         ) {
-            GlideImage(
-                model = movie.cardImageUrl,
-                contentDescription = movie.title,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
-            )
+            if (movie.cardImageUrl.isNotBlank()) {
+                GlideImage(
+                    model = movie.cardImageUrl,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
             // Bottom scrim
             Box(
                 modifier = Modifier
@@ -352,7 +351,7 @@ private fun ClassCard(movie: Movie, onFocused: () -> Unit, onClick: () -> Unit) 
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = movie.studio,
+                    text = movie.category,
                     color = JohnsonColors.TextTertiary,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -364,14 +363,11 @@ private fun ClassCard(movie: Movie, onFocused: () -> Unit, onClick: () -> Unit) 
 }
 
 @Composable
-private fun PreferencesRail(
-    onErrorClick: () -> Unit,
-    onPreferenceClick: (String) -> Unit
-) {
+private fun DemoToolsRail(onErrorClick: () -> Unit) {
     val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     Column(modifier = Modifier.padding(bottom = 16.dp)) {
         Text(
-            text = "PREFERENCES",
+            text = "示範工具",
             modifier = Modifier.padding(start = horizontalPadding, bottom = 14.dp),
             color = JohnsonColors.TextTertiary,
             fontSize = 11.sp,
@@ -382,9 +378,8 @@ private fun PreferencesRail(
             contentPadding = PaddingValues(horizontal = horizontalPadding),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { UtilCard(label = "Grid View", onClick = { onPreferenceClick("Grid View") }) }
-            item { UtilCard(label = "Error Fragment", onClick = onErrorClick) }
-            item { UtilCard(label = "Personal Settings", onClick = { onPreferenceClick("Personal Settings") }) }
+            // 錯誤畫面沒有其他入口，保留這張卡當作它的示範入口。
+            item { UtilCard(label = "錯誤畫面示範", onClick = onErrorClick) }
         }
     }
 }

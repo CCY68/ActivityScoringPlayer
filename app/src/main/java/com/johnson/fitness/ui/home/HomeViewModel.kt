@@ -30,19 +30,17 @@ class HomeViewModel : ViewModel() {
                 viewModelScope.launch { _effect.send(HomeEffect.NavigateToDetail(intent.movie.id)) }
             is HomeIntent.ErrorClicked ->
                 viewModelScope.launch { _effect.send(HomeEffect.NavigateToError) }
-            is HomeIntent.PreferenceClicked ->
-                viewModelScope.launch { _effect.send(HomeEffect.ShowToast(intent.label)) }
         }
     }
 
     private fun loadContent() {
-        val movies = MovieRepository.movies
-        val categories = MovieRepository.categories.map { name ->
-            HomeCategory(name = name, movies = List(15) { i -> movies[i % movies.size] })
+        // 課程清單寫死在 MovieRepository（Demo 無後端），首頁只是照課程分類分列。
+        val categories = MovieRepository.moviesByCategory().map { (name, movies) ->
+            HomeCategory(name = name, movies = movies)
         }
         _state.value = HomeState(
             categories = categories,
-            backgroundUrl = movies.firstOrNull()?.backgroundImageUrl ?: "",
+            backgroundUrl = MovieRepository.movies.firstOrNull()?.backgroundImageUrl.orEmpty(),
             isLoading = false
         )
     }

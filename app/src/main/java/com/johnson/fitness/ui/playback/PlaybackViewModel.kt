@@ -442,6 +442,18 @@ class PlaybackViewModel(
 
     private fun loadMafBeforePlayback() {
         mafLoadJob?.cancel()
+        // 目錄裡就標明沒有課程檔的影片（播放測試片）不是「載入失敗」，直接進「只播放、不評分」，
+        // 不要跳錯誤畫面要使用者再按一次「直接看影片」（Codex QA P4 缺陷 2）。
+        if (_state.value.movie?.hasScoringData == false) {
+            _state.update {
+                it.copy(
+                    mafLoadStatus = MafLoadStatus.PLAY_WITHOUT_SCORING,
+                    mafLoadError = null,
+                    isScoring = false
+                )
+            }
+            return
+        }
         _state.update {
             it.copy(
                 mafLoadStatus = MafLoadStatus.LOADING,

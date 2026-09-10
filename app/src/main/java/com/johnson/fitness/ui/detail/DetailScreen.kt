@@ -3,7 +3,6 @@
 package com.johnson.fitness.ui.detail
 
 import android.provider.OpenableColumns
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -29,12 +28,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.material3.AlertDialog as MaterialAlertDialog
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -83,20 +84,22 @@ fun DetailScreen(
             when (effect) {
                 is DetailEffect.NavigateToPlayback -> showSourceDialog = true
                 is DetailEffect.NavigateToDetail -> onRelatedMovieClick(effect.movieId)
-                is DetailEffect.ShowToast -> Toast.makeText(context, effect.message, Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     val movie = state.movie ?: return
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        GlideImage(
-            model = movie.backgroundImageUrl,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+    // 沒有課程主視覺時，底色要自己畫：Activity 沒有包 Surface，不墊底就會露出系統主題背景。
+    Box(modifier = Modifier.fillMaxSize().background(JohnsonColors.BgApp)) {
+        if (movie.backgroundImageUrl.isNotBlank()) {
+            GlideImage(
+                model = movie.backgroundImageUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -115,7 +118,7 @@ fun DetailScreen(
         ) {
             Text(text = movie.title, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color.White)
             Spacer(Modifier.height(8.dp))
-            Text(text = movie.studio, fontSize = 16.sp, color = Color.LightGray)
+            Text(text = movie.category, fontSize = 16.sp, color = Color.LightGray)
             Spacer(Modifier.height(16.dp))
             Text(
                 text = movie.description,
@@ -124,22 +127,26 @@ fun DetailScreen(
                 lineHeight = 20.sp,
                 maxLines = 4
             )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (movie.hasScoringData) "已標註課程，配戴手環可評分" else "無 .maf 課程檔，僅播放不評分",
+                fontSize = 13.sp,
+                color = Color.White.copy(alpha = 0.6f)
+            )
             Spacer(Modifier.height(24.dp))
-            // 三顆按鈕在窄螢幕下可能比欄寬還寬（欄位又被 widthIn(max) 縮到手機螢幕寬度），
+            // 按鈕在窄螢幕下可能比欄寬還寬（欄位又被 widthIn(max) 縮到手機螢幕寬度），
             // 加上橫向捲動避免文字被裁掉／按鈕被壓縮到點不到。
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val onWatchTrailer = { viewModel.onIntent(DetailIntent.WatchTrailer) }
-                val onRent = { viewModel.onIntent(DetailIntent.Rent) }
-                val onBuy = { viewModel.onIntent(DetailIntent.Buy) }
-                Button(onClick = onWatchTrailer, modifier = Modifier.touchClickable(onClick = onWatchTrailer)) { Text("Watch Trailer") }
-                Button(onClick = onRent, modifier = Modifier.touchClickable(onClick = onRent)) { Text("Rent \$3.99") }
-                Button(onClick = onBuy, modifier = Modifier.touchClickable(onClick = onBuy)) { Text("Buy \$9.99") }
+                val onStartCourse = { viewModel.onIntent(DetailIntent.StartCourse) }
+                val onBackClick = { onBack() }
+                Button(onClick = onStartCourse, modifier = Modifier.touchClickable(onClick = onStartCourse)) { Text("開始課程") }
+                Button(onClick = onBackClick, modifier = Modifier.touchClickable(onClick = onBackClick)) { Text("返回") }
             }
             Spacer(Modifier.height(32.dp))
-            Text(text = "Related Movies", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(text = "其他課程", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
             Spacer(Modifier.height(8.dp))
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.relatedMovies) { related ->
@@ -303,11 +310,25 @@ private fun RelatedMovieCard(movie: Movie, onClick: () -> Unit) {
             .height(if (compact) 80.dp else 100.dp)
             .touchClickable(onClick = onClick)
     ) {
-        GlideImage(
-            model = movie.cardImageUrl,
-            contentDescription = movie.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
-        )
+        Box(modifier = Modifier.fillMaxSize().background(JohnsonColors.SurfaceCard)) {
+            if (movie.cardImageUrl.isNotBlank()) {
+                GlideImage(
+                    model = movie.cardImageUrl,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            // 沒有縮圖時（目前全部如此）至少要看得到是哪一堂課。
+            Text(
+                text = movie.title,
+                color = JohnsonColors.TextPrimary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.BottomStart).padding(8.dp)
+            )
+        }
     }
 }
