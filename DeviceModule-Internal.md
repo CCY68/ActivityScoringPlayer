@@ -1,5 +1,9 @@
 # DeviceModule 實作原理（內部工程師版）
 
+> **文件狀態：歷史紀錄。** DeviceModule 已獨立成 `WtivityDeviceModule` repo，Player 只引用它產出的
+> `device-module.aar`。實作原理與 API 一律以該 repo 的 `DeviceModule-Internal.md` /
+> `DEVICE_MODULE_API.md` 為唯一來源；本檔留在這裡只供舊紀錄查閱，內容可能已經落後。
+
 > 本文件面向負責維護或擴展 DeviceModule 的工程師。  
 > 第三方整合請閱讀 `DEVICE_MODULE_API.md`。
 

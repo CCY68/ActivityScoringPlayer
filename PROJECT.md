@@ -1,27 +1,30 @@
-# ActivityScoringPlayer — Google TV Player Demo（含手環管理 / Module A）
+# ActivityScoringPlayer — Scoring Demo Player
 
-高齡運動 SIIR 補助案「動作分析模組」的 **Google TV 播放示範 App**，並收納 **Module A · 手環連線管理（DeviceModule）**。
+高齡運動 SIIR 補助案「動作分析模組」的 **Google TV 示範 App**：把評分引擎與手環連線兩個函式庫
+接起來，示範「播課程 → 收手環資料 → 即時評分 → 課後成果卡」的完整流程。
 
 > 本 repo 為多倉庫工作區的一部分。工作區全貌與跨元件契約見上層 [`../PROJECT.md`](../PROJECT.md)。
-> DeviceModule 實作原理見 [`DeviceModule-Internal.md`](./DeviceModule-Internal.md)。
 
 ## 定位
 
-- **平台**：Android / Google TV（Kotlin）。
-- **角色**：整合示範 — 串接手環（Module A）、播放課程、對接評分引擎（Module B）輸出的示範前端。
-- **Module A / DeviceModule**：透過 BLE 與健身手環通訊，將感測器原始訊號轉為結構化資料，分兩路轉送：
-  - **健康數據**（HR/HRV/SpO2/體溫）**直送**上層 App 顯示；
-  - **IMU DeviceFrame** 送 Module B 評分。
-
-## DeviceModule 架構骨架
-
-- **品牌適配器 + StateFlow 狀態機 + 指數退避重連**。
-- 一般品牌走 `IBrandAdapter`（單一 characteristic、單包解析）；**DoctorOne B20** 走 `IFramedBrandAdapter`（請求/響應幀協議、跨包拼包）。
-- B20 廣播辨識、幀格式、原始數據換算依 `../docs/B20*.pdf` 廠商文件。
+- **平台**：Android / Google TV（Kotlin、Compose for TV）。
+- **組成**：**2 個 AAR ＋ 使用範例**——
+  - `activity-scoring-core.aar`（Module B 評分引擎，來源 repo `ActivityScoringCore`；已內含 MAF 解析／解密，
+    不再需要獨立的 `maf-format.jar`）；
+  - `device-module.aar`（Module A 手環連線，來源 repo `WtivityDeviceModule`）；
+  - 本 repo 只寫**範例程式**：播放、時間軸換算、HUD、成果卡、CSV 錄製與回放。
+- **不含**：評分演算法、BLE 實作、後端。課程清單寫死在 `data/MovieRepository.kt`，
+  `.maf` 課程檔與內容金鑰打包在 `app/src/main/assets/`，App 不呼叫任何 API。
 
 ## 注意事項
 
-1. 健康與 IMU 走**獨立 listener**：App 只訂閱 Health，Module B 只訂閱 IMU。
-2. IMU 原始值**不在 DeviceModule 內濾波**（訊號處理屬 Module B 職責），只負責傳輸。
-3. B20 裝置端時間戳為「感測器重啟歸零的相對計數」，**不可**直接當 epoch 使用。
-4. 斷線務必 `gatt.close()`（系統 GATT 連線槽上限 7）；UUID 比對統一轉大寫。
+1. 兩個 AAR **不會自動同步**：來源 repo 改動後要重新建置並手動複製到 `app/libs/`，
+   同時更新 `ActivityScoringCore-Integration.md` 的版本表（日期／commit／大小／sha256 前 16 碼）。
+2. 健康與 IMU 走**獨立 listener**：App 只訂閱 Health（直送畫面），評分引擎只訂閱 IMU。
+3. 送進引擎的 IMU 時戳一律是**影片時間**，由 B20 裝置端時鐘換算（`data/ImuVideoTimeline.kt`）；
+   丟樣以**缺口**進 Core，不補樣本。
+4. 心率**不進入動作分數**，只用於強度區間與熱量估算；生理參數在 `設定 → 使用者資料`
+   （`data/UserProfilePreferences.kt`），未設定時是標示清楚的 Demo 預設值。
+5. 對外聲明限「心率與運動強度監看」，不得涉及醫療／診斷／急救。
+6. `DeviceModule-Internal.md` 是 DeviceModule 獨立成 repo 之前留下的**歷史文件**，
+   內部原理以 `WtivityDeviceModule` repo 的文件為唯一來源。

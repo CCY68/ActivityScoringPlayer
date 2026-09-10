@@ -117,6 +117,25 @@ Core 1.2 起多一個**不是分數**的輸出：`engine.participation: StateFlo
    Core 的驗收顯示兩份名義靜止錄製都退回 `null`，真正在跟做的五份仍有值（0.606–0.643）。
    `null` 一定要真的留白（顯示「－」），不可折成 0 或 0%。
 
+### 心率管線需要的使用者生理資料
+
+`ScoringEngine(config, heartRateProfile = …)` 的 `UserProfile` 由
+`data/UserProfilePreferences.kt` 提供（設定頁「使用者資料」可調，存 SharedPreferences），
+`ScoringEngineFactory.create()` 每次建引擎時重讀一次，所以改完設定下一堂課就生效。
+
+- 未設定過時用 **Demo 預設值**（30 歲／靜息 65 bpm／男性／70 kg／170 cm，`CalorieModel.VO2R`），
+  設定頁會標示「目前是 Demo 預設值」。PR-P4 之前這組值是寫死在 `ScoringEngineFactory` 裡的。
+- `onBetaBlocker` 與處方心率上下限固定 false／null：屬醫療用途，本 Demo 不提供該欄位。
+- 心率**不進入動作分數**，只影響強度區間與熱量估算。
+- HUD 的心率區間直接用 Core 的 `HeartState.zone`（1..5＝白/藍/綠/黃/紅，分界為 %HRR 的
+  20／40／60／80，`-1` 代表沒有有效心率），**顯示端不再自己算門檻**——自己算的話設定頁改了
+  年齡／靜息心率也不會反映（PR-P4 之前 HUD 寫死 115／133／152／172 bpm，正好是 30 歲／靜息 65
+  的 Karvonen 值）。沒有有效 bpm 的 tick 沿用上一筆的區間（PPG 約 1 Hz、整分鐘另有健康資料停頓，
+  每個空 tick 都清會一直閃），但用 `eventTimeMs − featureTimeMs`（Core 誠實回報的資料年齡）
+  超過 15 s 就把心率與區間清掉，避免手環斷線後 HUD 一直停在斷線前的讀值。
+  **手環整支斷線時 Core 不會再送 `HeartState`**（事件時間靠 IMU 樣本推進），所以 Player 另外用
+  `elapsedRealtime` 每秒檢查一次；只在影片播放中計時，暫停期間不算逾時、續播從當下重新起算。
+
 ## 2. App 目前怎麼用它（實際呼叫路徑）
 
 App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` 提供的 `ScoringEngine.loadMaf(...)` 間接使用：
@@ -124,7 +143,7 @@ App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` �
 ```
 PlaybackViewModel (app)
   → ScoringEngineFactory.loadMaf(engine, movieId)
-      ├─ 讀 assets: motions/$movieId.maf
+      ├─ 讀 assets: motions/<課程名>-<課程 id>.maf（MAF_FILE_BY_MOVIE_ID 對照）
       └─ 依 payload.key_id 讀 assets: keys/content-key.<key_id>.hex
   → ScoringEngine.loadMaf(bytes, decryptor)             // AES-GCM JSON 信封解密
   → MafLoader.load(...)                                 // maf-format，本文件的主角
@@ -139,7 +158,10 @@ PlaybackViewModel (app)
 
 ### `.maf` 檔案放哪裡
 
-固定路徑：`app/src/main/assets/motions/<movieId>.maf`（`movieId` 對應 `MovieRepository` 裡的影片清單，例如 `0.maf`）。
+固定目錄：`app/src/main/assets/motions/`。檔名沿用標註端交付的原始檔名
+`<課程名>-<課程 id>.maf`，由 `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID` 對照到 `MovieRepository`
+的 `movieId`（目前 0＝銀髮族健康操、1＝初階瑜珈、2＝太極藝術體驗課；3、4 為沒有 `.maf` 的播放測試影片）。
+對照表與各檔名見 `app/src/main/assets/motions/README.md`。
 
 加密內容金鑰固定放在 `app/src/main/assets/keys/content-key.<key_id>.hex`。例如 MAF 內的
 `payload.key_id` 是 `aswt-maf-2026-08-k1`，檔名就必須是
@@ -149,10 +171,15 @@ PlaybackViewModel (app)
 
 ### 方法一：接進這個 App（唯一目前支援的路徑）
 
-1. 把檔案改名成 `<movieId>.maf`，放到 `app/src/main/assets/motions/<movieId>.maf`。
+1. 把檔案放到 `app/src/main/assets/motions/`（檔名照標註端交付的原樣即可）。
 2. 依 `payload.key_id` 命名內容金鑰，放到 `app/src/main/assets/keys/content-key.<key_id>.hex`。
-3. 確認 `movieId` 跟 `MovieRepository.kt` 裡影片清單對得上。
+3. 在 `ScoringEngineFactory.MAF_FILE_BY_MOVIE_ID` 補上 `movieId → 檔名`；
+   `movieId` 要跟 `MovieRepository.kt` 的課程清單對得上，
+   課程顯示設定（`CourseDisplaySettings`）也一併補標註端課程 id。
 4. Rebuild 裝進 APK。`PlaybackViewModel` 會自動嘗試載入，`state.isScoring == true` 代表載入成功進入評分模式。
+
+`MovieRepository` 裡 `hasScoringData = false` 的影片（播放測試片）**不會**嘗試載入 MAF，
+直接進 `PLAY_WITHOUT_SCORING`；「評分資料載入失敗」畫面只留給「預期有 `.maf` 卻載不起來」的情況。
 
 目前**沒有匯入 UI**（無檔案選擇器、無 SAF/URI 讀取、無網路下載），只認 assets 裡的固定路徑。
 

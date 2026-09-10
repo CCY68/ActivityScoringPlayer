@@ -1,15 +1,28 @@
-# ActivityScoringPlayer
+# ActivityScoringPlayer — Scoring Demo Player
 
-Google TV 播放示範 App，內含 **Module A · 手環連線管理（DeviceModule）**。串接健身手環、播放課程影片，並示範對接評分引擎（Module B）的整合流程。
+Google TV 示範 App：把 **`activity-scoring-core.aar`（Module B 評分引擎）** 與
+**`device-module.aar`（Module A 手環連線）** 兩個函式庫接起來，播課程影片、收手環 IMU 與心率，
+即時顯示評分 HUD 與課後成果卡。
 
-- **平台**：Android / Google TV（Kotlin）
+**這個 repo ＝ 2 個 AAR ＋ 使用範例**，本身不含評分演算法，也不含 BLE 實作：
+
+| 內容 | 來源 repo | 放在哪 |
+|---|---|---|
+| `activity-scoring-core.aar`（含 MAF 解析／解密，不再需要獨立 `maf-format.jar`） | `ActivityScoringCore` | `app/libs/` |
+| `device-module.aar`（Module A DeviceModule） | `WtivityDeviceModule` | `app/libs/` |
+| `.maf` 課程檔與內容金鑰 | `ActivityScoringWebTool` 標註端 | `app/src/main/assets/motions/`、`assets/keys/` |
+| 範例程式（播放、接線、HUD、成果卡、CSV 錄製與回放） | 本 repo | `app/src/main/java/com/johnson/fitness/` |
+
+- **平台**：Android / Google TV（Kotlin、Compose for TV）
 - **主硬體**：DoctorOne B20（BLE，單腕 IMU + PPG）
-- **DeviceModule**：BLE 連線、品牌適配、幀式協議、自動重連
+- **沒有後端**：課程清單寫死在 `data/MovieRepository.kt`，`.maf` 打包在 assets，
+  影片由 ExoPlayer 直接取串流位址播放；App **不呼叫任何 API**。
 
 ## 文件
 
-- [`DeviceModule-Internal.md`](./DeviceModule-Internal.md) — DeviceModule 內部實作原理
-- [`ActivityScoringCore-Integration.md`](./ActivityScoringCore-Integration.md) — Core AAR 內建 MAF 解析與 `.maf` 課程檔使用方法
+- [`ActivityScoringCore-Integration.md`](./ActivityScoringCore-Integration.md) — Core AAR 的接線方式、`.maf` 課程檔怎麼放、AAR 版本表
+- [`DeviceModule-Internal.md`](./DeviceModule-Internal.md) — **歷史文件**：DeviceModule 內部實作原理。
+  DeviceModule 已獨立成 `WtivityDeviceModule` repo，該 repo 的文件才是唯一來源，本檔僅供舊紀錄查閱
 - [`PROJECT.md`](./PROJECT.md) — 本元件定位與注意事項
 - [`AGENTS.md`](./AGENTS.md) — AI 協作守則
 - [`../PROJECT.md`](../PROJECT.md) — 工作區全貌與跨元件契約
@@ -17,12 +30,31 @@ Google TV 播放示範 App，內含 **Module A · 手環連線管理（DeviceMod
 ## 資料流
 
 ```
-手環(B20, BLE) → DeviceModule
+手環(B20, BLE) → device-module.aar
    ├─ 健康數據（HR/HRV/SpO2/體溫）── 直送 ──▶ App 顯示
-   └─ IMU DeviceFrame ─────────────────────▶ Module B 評分
+   └─ IMU 樣本（換算成影片時間軸）───────────▶ activity-scoring-core.aar 評分
+                                                  └─▶ App HUD／成果卡
 ```
 
-DeviceModule 以「品牌適配器 + StateFlow 狀態機 + 指數退避重連」為骨架：一般品牌走 `IBrandAdapter`，B20 走 `IFramedBrandAdapter`（幀式請求/響應協議）。
+心率**不進入動作分數**，只用於強度區間與熱量估算（`設定 → 使用者資料` 的年齡／靜息心率／體重／身高）。
+對外聲明限「心率與運動強度監看」，不涉及醫療、診斷或急救。
+
+## 畫面
+
+| 畫面 | 說明 |
+|---|---|
+| 首頁 | 依課程分類分列的示範課程（3 堂已標註課程 + 2 支播放測試影片） |
+| 詳情頁 | 課程說明、是否有 `.maf`、「開始課程」→ 選擇播放模式（正常 B20／Replay CSV）與是否收錄 CSV |
+| 播放頁 | 影片 + 即時評分 HUD（三面向）＋ 心率區間；結束顯示成果卡 |
+| 設定 | 藍牙配對、使用者資料（生理參數，見下） |
+| 藍牙 | 掃描、連線、記住上次裝置 |
+
+### 使用者資料（生理參數）
+
+`設定 → 使用者資料` 可調年齡、靜息心率、生理性別、體重、身高，存在 SharedPreferences
+（`data/UserProfilePreferences.kt`），下一次進播放頁建立引擎時套用。
+沒調整過時使用 **Demo 預設值**（30 歲／靜息 65 bpm／男性／70 kg／170 cm），畫面上會明白標示；
+這組值不是任何真實受測者的資料。不提供 β 阻斷劑與處方心率上下限欄位（屬醫療用途，不在本 Demo 範圍）。
 
 ## 全程靜坐錄製流程
 
@@ -38,7 +70,7 @@ Core 的評分回歸測試需要一份**真的坐著不動**的 IMU 錄製當零
 
 **錄製**
 
-1. 首頁選課程 →詳情頁按播放 →「選擇播放模式」選 **正常模式（B20）**。
+1. 首頁選課程 → 詳情頁按 **開始課程** →「選擇播放模式」選 **正常模式（B20）**。
 2. 「是否收錄 B20 IMU？」選 **收錄 CSV**。
 3. 進入播放頁後**按播放鍵開始播放**——播放器預設是暫停狀態，**沒有在播放就不會寫入任何樣本**
    （CSV 的時間戳是影片時間）。
@@ -96,4 +128,5 @@ videoTimeMs = (deviceTimestampUs − 錨點裝置時戳) / 1000 + 錨點影片�
 ## Git
 
 Remote：`git@github-ccy:CCY68/ActivityScoringPlayer.git`（帳號 `CCY68`，SSH 別名 `github-ccy`）。
+兩個 AAR 由來源 repo 建置後手動複製過來，不會自動同步（步驟見 `ActivityScoringCore-Integration.md`）。
 `CLAUDE.md` 與 `.claude/` 不納入版控。
