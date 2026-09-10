@@ -1,4 +1,6 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 plugins {
     alias(libs.plugins.android.application)
@@ -18,6 +20,21 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
+
+        // 設定頁顯示的建置資訊：電視上裝的是哪一次 build、對應哪個 commit。
+        // 時間取建置機器的本地時區；每次 build 都會變，這個 demo 不在意快取失效。
+        // 用檔頭 import：android {} 區塊內的 `java` 會解析成 Gradle 的 java 擴充，java.time 反而找不到
+        val buildTime = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss zzz"))
+        val gitSha = runCatching {
+            providers.exec { commandLine("git", "rev-parse", "--short", "HEAD") }
+                .standardOutput.asText.get().trim()
+        }.getOrDefault("unknown")
+        val gitDirty = runCatching {
+            providers.exec { commandLine("git", "status", "--porcelain") }
+                .standardOutput.asText.get().isNotBlank()
+        }.getOrDefault(false)
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
+        buildConfigField("String", "GIT_SHA", "\"$gitSha${if (gitDirty) "+dirty" else ""}\"")
     }
 
     buildTypes {

@@ -35,6 +35,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.fitness.activityscoringcore.heart.BiologicalSex
 import com.fitness.activityscoringcore.heart.UserProfile
+import com.johnson.fitness.BuildConfig
 import com.johnson.fitness.FitnessApp
 import com.johnson.fitness.data.UserProfilePreferences
 import com.johnson.fitness.ui.common.isCompactWidth
@@ -197,6 +198,13 @@ fun SettingsScreen(
                     actionLabel = "還原",
                     onClick = resetProfile
                 )
+
+                Spacer(Modifier.height(24.dp))
+                // Section: 版本
+                // 電視上常同時存在好幾次 side-load 的 build，出問題時第一個要問的是「裝的是哪一版」；
+                // 建置時間與 commit 由 build.gradle.kts 在建置當下寫進 BuildConfig，不靠人手更新。
+                SectionLabel("版本")
+                BuildInfoRow()
             }
 
             Spacer(Modifier.height(32.dp))
@@ -209,6 +217,27 @@ private fun weightKgOf(profile: UserProfile): Int =
 
 private fun heightCmOf(profile: UserProfile): Int =
     (profile.heightCm ?: UserProfilePreferences.DEMO_DEFAULT.heightCm ?: 170f).toInt()
+
+@Composable
+private fun BuildInfoRow() {
+    SettingRowFrame {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "建置時間　${BuildConfig.BUILD_TIME}",
+                color = JohnsonColors.TextPrimary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "版本 ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})・" +
+                    "${BuildConfig.BUILD_TYPE}・commit ${BuildConfig.GIT_SHA}",
+                color = JohnsonColors.TextTertiary,
+                fontSize = 13.sp
+            )
+        }
+    }
+}
 
 @Composable
 private fun SectionLabel(text: String) {
