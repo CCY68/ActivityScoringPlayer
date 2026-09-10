@@ -23,6 +23,15 @@ sealed class PlaybackLaunchConfig {
 
 data class PlaybackState(
     val movie: Movie? = null,
+    // 播放網址：目錄不存，進播放頁才向免驗證端點查（CoursePlayUrlRepository）。
+    // null＝還在查或查不到；videoUrlError 非 null 時畫面顯示錯誤與重試。
+    val videoUrl: String? = null,
+    val videoUrlError: String? = null,
+    // 網址查到了、串流卻播不起來（HLS 404／CDN 故障／播到一半斷網），播放器放棄重試後的錯誤說明。
+    // 這時**不重建畫面**，只在影片上疊一層對話框，重試會重查網址（略過快取）並從目前位置重新準備。
+    val videoPlaybackError: String? = null,
+    // 每查到一次網址就 +1；`videoUrl` 沒變時也要能讓播放器重新 prepare（重試同一個網址）。
+    val videoUrlAttempt: Int = 0,
     val mafLoadStatus: MafLoadStatus = MafLoadStatus.LOADING,
     val mafLoadError: String? = null,
     val isScoring: Boolean = false,
@@ -126,6 +135,10 @@ sealed class PlaybackIntent {
     // 這裡同時把評分引擎的「裝置時間 -> 影片時間」換算基準重新校正，
     // 否則 seek 之後 IMU/心率樣本仍會照舊 offset 換算，對到錯誤的影片時間點。
     data class Seek(val positionMs: Long) : PlaybackIntent()
+    /** 播放網址查詢失敗、或串流播不起來時的重試（會略過網址快取重查）。 */
+    object RetryVideoUrl : PlaybackIntent()
+    /** ExoPlayer 放棄重試，回報播放錯誤。 */
+    data class PlayerFailed(val message: String) : PlaybackIntent()
 }
 
 sealed class PlaybackEffect {

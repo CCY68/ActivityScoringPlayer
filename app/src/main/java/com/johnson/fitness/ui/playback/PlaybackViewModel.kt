@@ -16,6 +16,7 @@ import com.motionmaf.format.MafLoadResult
 import com.johnson.fitness.data.CourseDisplaySettings
 import com.johnson.fitness.data.DeviceAutoConnect
 import com.johnson.fitness.data.LastDevicePreferences
+import com.johnson.fitness.data.CoursePlayUrlRepository
 import com.johnson.fitness.data.MovieRepository
 import com.johnson.fitness.data.ScoringEngineFactory
 import com.johnson.fitness.data.ImuCsvStore
@@ -53,7 +54,7 @@ class PlaybackViewModel(
 
     private val _state = MutableStateFlow(
         PlaybackState(
-            movie = MovieRepository.getMovieById(movieId),
+            movie = MovieRepository.getMovieById(appContext, movieId),
             // 課程設定（§9.2 弱訊號太極）：太極不顯示活動三項與三面向分數，只留參與時間與生理摘要
             showActivityStats = CourseDisplaySettings.showActivityStats(movieId)
         )
@@ -119,6 +120,7 @@ class PlaybackViewModel(
 
     private var feedbackDismissJob: Job? = null
     private var mafLoadJob: Job? = null
+    private var videoUrlJob: Job? = null
     private var deviceBridgeJob: Job? = null
     private var csvReplayJob: Job? = null
     private var seekJob: Job? = null
@@ -201,7 +203,10 @@ class PlaybackViewModel(
     // 不要每次 connectionState 回到 Disconnected 就再打一次（例如自動連線失敗、或使用者手動斷線）。
     private var autoConnectAttempted = false
 
+    private val playUrlRepository = CoursePlayUrlRepository()
+
     init {
+        resolveVideoUrl(forceReload = false)
         loadMafBeforePlayback()
         tryAutoConnectToLastDevice()
 
@@ -485,6 +490,52 @@ class PlaybackViewModel(
         }
     }
 
+    /**
+     * 查這堂課的播放網址（HLS master playlist）。播放網址會換，所以不寫進 `courses.json`，
+     * 每次進播放頁向免驗證端點查一次（同 process 內有快取）。
+     *
+     * 失敗時**不會**自己重試無限次：把錯誤放進 state 讓畫面給「重試／返回」，
+     * 免得課程開始前就在背景一直打網路。
+     */
+    private fun resolveVideoUrl(forceReload: Boolean) {
+        val courseId = _state.value.movie?.courseId
+        if (courseId.isNullOrBlank()) {
+            _state.update { it.copy(videoUrl = null, videoUrlError = "課程目錄裡找不到這堂課（courseId 為空）") }
+            return
+        }
+        videoUrlJob?.cancel()
+        // 只清「還沒開始播就查不到網址」的錯誤。播放中失敗的對話框留著等結果，
+        // 一來使用者知道重試還在跑，二來清掉之後畫面會空一段時間（播放器已經 IDLE）。
+        _state.update { it.copy(videoUrlError = null) }
+        videoUrlJob = viewModelScope.launch {
+            when (val result = playUrlRepository.resolve(courseId, forceReload = forceReload)) {
+                is CoursePlayUrlRepository.Result.Success ->
+                    _state.update {
+                        it.copy(
+                            videoUrl = result.playUrl,
+                            videoUrlError = null,
+                            videoPlaybackError = null,
+                            // 查回同一個網址時 videoUrl 不變，靠這個計數讓畫面重新 prepare。
+                            videoUrlAttempt = it.videoUrlAttempt + 1
+                        )
+                    }
+
+                is CoursePlayUrlRepository.Result.Failure ->
+                    _state.update {
+                        if (it.videoUrl != null) {
+                            // 這堂課已經有播放 session（播到一半斷網後重試）：**不要**清掉 videoUrl，
+                            // 否則畫面會走 early return 把播放器連同播放位置一起釋放，
+                            // 而評分引擎仍停在原本進度，恢復後時間軸就對不上了
+                            //（Codex QA 第三輪缺陷 1）。保留播放器，只換對話框內容讓使用者再重試。
+                            it.copy(videoPlaybackError = result.message)
+                        } else {
+                            it.copy(videoUrl = null, videoUrlError = result.message)
+                        }
+                    }
+            }
+        }
+    }
+
     private fun loadMafBeforePlayback() {
         mafLoadJob?.cancel()
         // 目錄裡就標明沒有課程檔的影片（播放測試片）不是「載入失敗」，直接進「只播放、不評分」，
@@ -615,6 +666,10 @@ class PlaybackViewModel(
 
     fun onIntent(intent: PlaybackIntent) {
         when (intent) {
+            is PlaybackIntent.RetryVideoUrl -> resolveVideoUrl(forceReload = true)
+            is PlaybackIntent.PlayerFailed ->
+                // 播放器已經自己重試過才會走到這裡；直接告訴使用者並給重試，不要停在黑畫面。
+                _state.update { it.copy(videoPlaybackError = intent.message) }
             is PlaybackIntent.PlayWithoutScoring -> {
                 _state.update {
                     it.copy(

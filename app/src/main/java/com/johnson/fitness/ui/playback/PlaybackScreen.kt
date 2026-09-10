@@ -66,6 +66,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -136,6 +137,17 @@ fun PlaybackScreen(
         MafLoadStatus.PLAY_WITHOUT_SCORING -> Unit
     }
 
+    // 播放網址查不到就沒有東西可播；跟 MAF 失敗一樣給明確畫面與重試，不要停在黑畫面。
+    val videoUrlError = state.videoUrlError
+    if (videoUrlError != null) {
+        VideoUrlFailureScreen(
+            message = videoUrlError,
+            onRetry = { viewModel.onIntent(PlaybackIntent.RetryVideoUrl) },
+            onCancel = { viewModel.onIntent(PlaybackIntent.BackPressed) }
+        )
+        return
+    }
+
     // 播放頁全程保持螢幕常亮：課程一段動作可能數分鐘沒有任何遙控器輸入，Google TV 會進入螢幕保護
     // （實測：模擬器播放中途進入 screensaver）。離開播放頁時還原，不影響其他畫面。
     val hostView = LocalView.current
@@ -148,9 +160,14 @@ fun PlaybackScreen(
         ExoPlayer.Builder(context).build().apply { playWhenReady = false }
     }
 
-    LaunchedEffect(state.movie) {
-        state.movie?.videoUrl?.let { url ->
-            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+    // 播放網址在執行期才查得到（CoursePlayUrlRepository），拿到之後才餵給播放器。
+    // videoUrlAttempt 一起當 key：重試查回同一個網址時 videoUrl 不變，也要重新 prepare 一次。
+    LaunchedEffect(state.videoUrl, state.videoUrlAttempt) {
+        state.videoUrl?.let { url ->
+            // 播到一半才失敗的重試，從失敗當下的位置接回去，不要整堂課從頭播。
+            val resumeAtMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+            val startAtMs = if (state.videoUrlAttempt > 1 && resumeAtMs > 0L) resumeAtMs else 0L
+            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)), startAtMs)
             exoPlayer.prepare()
         }
     }
@@ -170,6 +187,16 @@ fun PlaybackScreen(
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                     viewModel.onIntent(PlaybackIntent.Seek(newPosition.positionMs))
                 }
+            }
+
+            // 播放器自己重試過仍然失敗（HLS 404、CDN 故障、播到一半斷網）時才會進來；
+            // 交給畫面顯示「播放失敗」與重試，不要停在黑畫面。
+            override fun onPlayerError(error: PlaybackException) {
+                viewModel.onIntent(
+                    PlaybackIntent.PlayerFailed(
+                        "${error.errorCodeName}：${error.message ?: "串流載入失敗"}"
+                    )
+                )
             }
 
             override fun onEvents(player: Player, events: Player.Events) {
@@ -450,6 +477,17 @@ fun PlaybackScreen(
                 onConfirm = { viewModel.onIntent(PlaybackIntent.DismissRecordingComplete) }
             )
         }
+
+        // 串流播不起來：疊在影片上顯示，**不重建播放器、不重設評分引擎**；
+        // 重試會重查網址（略過快取，網址可能已經換過）並從失敗當下的位置接回去。
+        state.videoPlaybackError?.let { message ->
+            StreamFailureDialog(
+                title = "播放失敗",
+                message = message,
+                onRetry = { viewModel.onIntent(PlaybackIntent.RetryVideoUrl) },
+                onCancel = { viewModel.onIntent(PlaybackIntent.BackPressed) }
+            )
+        }
     }
 }
 
@@ -548,6 +586,66 @@ private fun MafLoadFailureScreen(
             textContentColor = JohnsonColors.TextSecondary
         )
     }
+}
+
+/** 播放網址查不到（斷網、端點回錯）時的整頁畫面；重試會重新打一次 `course/info`。 */
+@Composable
+private fun VideoUrlFailureScreen(
+    message: String,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(JohnsonColors.Ink1000)
+    ) {
+        StreamFailureDialog(
+            title = "取得播放網址失敗",
+            message = message.ifBlank { "無法取得這堂課的播放網址，請確認網路連線。" },
+            onRetry = onRetry,
+            onCancel = onCancel
+        )
+    }
+}
+
+/** 播放網址查詢失敗與串流播放失敗共用的「重試／返回」對話框。 */
+@Composable
+private fun StreamFailureDialog(
+    title: String,
+    message: String,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit
+) {
+    MaterialAlertDialog(
+        onDismissRequest = {},
+        title = { Text(title) },
+        text = {
+            Text(
+                text = message.ifBlank { "串流載入失敗，請確認網路連線。" },
+                color = JohnsonColors.TextPrimary
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = onRetry,
+                modifier = Modifier.touchClickable(onClick = onRetry)
+            ) {
+                Text("重試")
+            }
+        },
+        dismissButton = {
+            Button(
+                onClick = onCancel,
+                modifier = Modifier.touchClickable(onClick = onCancel)
+            ) {
+                Text("返回")
+            }
+        },
+        containerColor = JohnsonColors.Ink800,
+        titleContentColor = JohnsonColors.TextPrimary,
+        textContentColor = JohnsonColors.TextSecondary
+    )
 }
 
 // ─── Top bar components ───────────────────────────────────────────────────────
