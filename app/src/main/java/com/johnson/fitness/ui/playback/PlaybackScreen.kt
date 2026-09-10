@@ -56,6 +56,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -133,6 +134,14 @@ fun PlaybackScreen(
         }
         MafLoadStatus.READY,
         MafLoadStatus.PLAY_WITHOUT_SCORING -> Unit
+    }
+
+    // 播放頁全程保持螢幕常亮：課程一段動作可能數分鐘沒有任何遙控器輸入，Google TV 會進入螢幕保護
+    // （實測：模擬器播放中途進入 screensaver）。離開播放頁時還原，不影響其他畫面。
+    val hostView = LocalView.current
+    DisposableEffect(hostView) {
+        hostView.keepScreenOn = true
+        onDispose { hostView.keepScreenOn = false }
     }
 
     val exoPlayer = remember {
