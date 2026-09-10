@@ -4,21 +4,14 @@ package com.johnson.fitness.data
  * 依課程調整成果卡呈現的設定（評分修復更新計畫 §9.2、§9.5）。
  *
  * 這裡的 key 是**標註端（WebTool／Core）的課程 id**，也就是 Core repo 裡
- * `course-<名稱>-<courseId>.draft.json` 的那串數字；Player 內部用的是 [MovieRepository] 的 `movieId`
- * （0…4），兩者靠 [ANNOTATION_COURSE_ID_BY_MOVIE_ID] 對照。契約以課程 id 寫，所以設定表也以課程 id 為
- * 準——換影片來源、movieId 重新編號時只要改對照表，不用動設定。
+ * `course-<名稱>-<courseId>.draft.json` 的那串數字。影片牆改版後 Player 的 `movieId`
+ * **就是課程編號本身**（見 [com.johnson.fitness.model.Movie]），所以不再需要對照表，
+ * `movieId.toString()` 即課程 id。
  *
  * **這是純顯示設定，不影響 Core**：Core 對每一堂課都照常算四項參與指標，是否要拿給使用者看由這裡決定
  * （§9.2「不動 MAF 與 Core」）。
  */
 object CourseDisplaySettings {
-
-    /** Player `movieId` → 標註端課程 id。沒列到的影片沒有對應課程（例如純播放測試片）。 */
-    private val ANNOTATION_COURSE_ID_BY_MOVIE_ID: Map<Long, String> = mapOf(
-        0L to "17421781954041251", // 銀髮族健康操
-        1L to "17421914658801191", // 初階瑜珈體位法
-        2L to "17428046223601321"  // 太極藝術體驗課
-    )
 
     /**
      * 是否顯示「偵測到活動／最長連續活動／節奏規律」三項（預設 true）。
@@ -33,7 +26,7 @@ object CourseDisplaySettings {
     )
 
     fun annotationCourseId(movieId: Long?): String? =
-        movieId?.let { ANNOTATION_COURSE_ID_BY_MOVIE_ID[it] }
+        movieId?.takeIf { it > 0L }?.toString()
 
     fun showActivityStats(movieId: Long?): Boolean {
         val courseId = annotationCourseId(movieId) ?: return true

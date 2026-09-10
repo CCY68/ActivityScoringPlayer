@@ -26,9 +26,12 @@ class ScoringEngineFactory(
     /**
      * 從 assets 讀取指定課程的 MAF 檔位元組；檔案不存在或讀取失敗回傳 null，
      * 呼叫端據此判斷是否進入「僅播放影片、不評分」的降級模式（見 PlaybackViewModel）。
+     *
+     * 檔名由課程目錄決定（`courses.json` 的 `mafAsset`，留空時以課程編號比對 `assets/motions/`），
+     * 見 [CourseCatalog.resolveMafAsset]；這裡**不再有寫死的 movieId → 檔名對照表**。
      */
     fun readMafBytes(movieId: Long): ByteArray? {
-        val fileName = MAF_FILE_BY_MOVIE_ID[movieId] ?: return null
+        val fileName = MovieRepository.getMovieById(context, movieId)?.mafAsset ?: return null
         return runCatching { context.readMafAssetBytes("motions/$fileName") }.getOrNull()
     }
 
@@ -56,11 +59,5 @@ class ScoringEngineFactory(
 
     private companion object {
         val KEY_ID_PATTERN = Regex("[A-Za-z0-9._-]+")
-        // 檔名＝標註端交付的原始檔名 `<課程名>-<課程 id>.maf`，key 是 MovieRepository 的 movieId。
-        val MAF_FILE_BY_MOVIE_ID = mapOf(
-            0L to "銀髮族健康操-17421781954041251.maf",
-            1L to "初階瑜珈-17421914658801191.maf",
-            2L to "太極藝術體驗課-17428046223601321.maf"
-        )
     }
 }
