@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -49,6 +50,7 @@ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import androidx.compose.foundation.layout.widthIn
 import com.johnson.fitness.model.Movie
+import com.johnson.fitness.ui.common.CourseCardStyle
 import com.johnson.fitness.ui.common.isCompactWidth
 import com.johnson.fitness.ui.common.touchClickable
 import com.johnson.fitness.ui.playback.PlaybackLaunchConfig
@@ -60,7 +62,12 @@ fun DetailScreen(
     onWatchTrailer: (PlaybackLaunchConfig) -> Unit,
     onRelatedMovieClick: (Long) -> Unit,
     onBack: () -> Unit,
-    viewModel: DetailViewModel = viewModel { DetailViewModel(movieId) }
+    viewModel: DetailViewModel = viewModel {
+        DetailViewModel(
+            application = checkNotNull(get(APPLICATION_KEY)),
+            movieId = movieId
+        )
+    }
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -120,16 +127,33 @@ fun DetailScreen(
             Spacer(Modifier.height(8.dp))
             Text(text = movie.category, fontSize = 16.sp, color = Color.LightGray)
             Spacer(Modifier.height(16.dp))
+            // 目錄（courses.json）沒有課程介紹欄位，這裡改列可以直接核對的事實：課程編號與長度。
+            if (movie.description.isNotBlank()) {
+                Text(
+                    text = movie.description,
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                    lineHeight = 20.sp,
+                    maxLines = 4
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            val duration = CourseCardStyle.formatDuration(movie.durationSec)
             Text(
-                text = movie.description,
-                fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.8f),
-                lineHeight = 20.sp,
-                maxLines = 4
+                text = listOfNotNull(
+                    "課程編號 ${movie.courseId}",
+                    duration.ifEmpty { null }
+                ).joinToString(" · "),
+                fontSize = 13.sp,
+                color = Color.White.copy(alpha = 0.7f)
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                text = if (movie.hasScoringData) "已標註課程，配戴手環可評分" else "無 .maf 課程檔，僅播放不評分",
+                text = if (movie.hasScoringData) {
+                    "已標註課程（${movie.mafAsset}），配戴手環可評分"
+                } else {
+                    "無 .maf 課程檔，僅播放不評分"
+                },
                 fontSize = 13.sp,
                 color = Color.White.copy(alpha = 0.6f)
             )
@@ -310,7 +334,7 @@ private fun RelatedMovieCard(movie: Movie, onClick: () -> Unit) {
             .height(if (compact) 80.dp else 100.dp)
             .touchClickable(onClick = onClick)
     ) {
-        Box(modifier = Modifier.fillMaxSize().background(JohnsonColors.SurfaceCard)) {
+        Box(modifier = Modifier.fillMaxSize().background(CourseCardStyle.placeholderBrush(movie))) {
             if (movie.cardImageUrl.isNotBlank()) {
                 GlideImage(
                     model = movie.cardImageUrl,
