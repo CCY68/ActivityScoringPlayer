@@ -1,6 +1,7 @@
 package com.johnson.fitness.ui.playback
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -71,6 +73,9 @@ class PlaybackViewModel(
 
     @Volatile private var videoPositionMs = 0L
     @Volatile private var videoIsPlaying = false
+
+    /** 最後一筆**有效**心率到達時的 `elapsedRealtime`；0 代表這堂課還沒收過心率。 */
+    @Volatile private var lastHeartRateElapsedRealtimeMs = 0L
     @Volatile private var videoClockAnchorPositionMs = 0L
     @Volatile private var videoClockAnchorElapsedRealtimeMs = 0L
     @Volatile private var videoPlaybackSpeed = 1f
@@ -239,13 +244,53 @@ class PlaybackViewModel(
         // 心率獨立管線（Stream C）：bpm 直接顯示，safety 目前只用來偵測裝置斷線（見下方 imuConnected）
         viewModelScope.launch {
             engine.heartRate.collect { heartState ->
+                val bpm = heartState.bpm.takeIf(Float::isFinite)?.roundToInt()
+                // 沒有有效 bpm 的 tick 先沿用上一筆（PPG 本來就約 1 Hz、整分鐘還會有健康資料停頓，
+                // 每個空 tick 都清成「--」會一直閃）；但 Core 誠實回報這筆資料的年齡
+                // （eventTimeMs − featureTimeMs），超過 STALE_HEART_RATE_MS 就代表手環真的斷了，
+                // 這時要把心率與區間都清掉，不能讓 HUD 一直停在斷線前的讀值（Codex QA P4 第二輪缺陷 1）。
+                if (bpm != null) lastHeartRateElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                val staleMs = heartState.eventTimeMs - heartState.featureTimeMs
+                val stale = bpm == null && staleMs > STALE_HEART_RATE_MS
                 _state.update {
-                    it.copy(heartRate = heartState.bpm.takeIf(Float::isFinite)?.roundToInt() ?: it.heartRate)
+                    it.copy(
+                        heartRate = bpm ?: if (stale) 0 else it.heartRate,
+                        heartRateZone = when {
+                            bpm != null -> heartState.zone
+                            stale -> -1
+                            else -> it.heartRateZone
+                        }
+                    )
                 }
                 if (wasImuConnected && !heartState.imuConnected) {
                     _state.update { it.copy(alertMessage = "手環裝置已斷線，請重新連線") }
                 }
                 wasImuConnected = heartState.imuConnected
+            }
+        }
+
+        // 上面的 stale 判斷只擋得住「PPG 掉、IMU 還在」：手環整支斷線時 Core 的事件時間是靠 IMU
+        // 樣本推進的，不會再送任何 HeartState，收集器根本不會再跑。所以逾時另外用 App 端的單調
+        // 時鐘自己算（Codex QA P4 第三輪缺陷）。只在影片播放中計時：暫停時本來就不該把心率清掉。
+        viewModelScope.launch {
+            while (isActive) {
+                delay(HEART_RATE_STALE_CHECK_INTERVAL_MS)
+                if (!videoIsPlaying) {
+                    // 暫停期間不算逾時，續播時從當下重新起算，避免長暫停一回來就被清掉。
+                    if (lastHeartRateElapsedRealtimeMs != 0L) {
+                        lastHeartRateElapsedRealtimeMs = SystemClock.elapsedRealtime()
+                    }
+                    continue
+                }
+                val last = lastHeartRateElapsedRealtimeMs
+                if (last == 0L || SystemClock.elapsedRealtime() - last <= STALE_HEART_RATE_MS) continue
+                _state.update {
+                    if (it.heartRate > 0 || it.heartRateZone > 0) {
+                        it.copy(heartRate = 0, heartRateZone = -1)
+                    } else {
+                        it
+                    }
+                }
             }
         }
 
@@ -865,6 +910,10 @@ class PlaybackViewModel(
         const val CSV_CLOCK_CHECK_INTERVAL_MS = 5L
         const val RECORDING_TAIL_DURATION_MS = 3_000L
         const val SEEK_DEBOUNCE_MS = 120L
+        // 心率讀值最多沿用這麼久；超過就當作手環斷了，HUD 顯示「--」而不是斷線前的舊值。
+        // 取 15 s 是為了蓋過 B20 每整分鐘的健康資料停頓與 PPG 的 1 Hz 更新間隔。
+        const val STALE_HEART_RATE_MS = 15_000L
+        const val HEART_RATE_STALE_CHECK_INTERVAL_MS = 1_000L
         const val ASPECT_LOG_TAG = "ScoringAspect"
     }
 }

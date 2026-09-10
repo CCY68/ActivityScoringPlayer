@@ -3,9 +3,6 @@ package com.johnson.fitness.data
 import android.content.Context
 import com.fitness.activityscoringcore.api.EngineConfig
 import com.fitness.activityscoringcore.engine.ScoringEngine
-import com.fitness.activityscoringcore.heart.BiologicalSex
-import com.fitness.activityscoringcore.heart.CalorieModel
-import com.fitness.activityscoringcore.heart.UserProfile
 import com.fitness.activityscoringcore.reference.readMafAssetBytes
 import com.motionmaf.format.AesGcmEnvelopeMafDecryptor
 import com.motionmaf.format.MafLoadResult
@@ -14,11 +11,16 @@ import com.motionmaf.format.ReviewPolicy
 // ActivityScoringCore 已改版：不再有 builder()/ScoringConfig/SettlementAlgorithm，
 // 直接建構 ScoringEngine；heartRateProfile 才能啟用心率安全管線（見 UserProfile）。
 class ScoringEngineFactory(
-    private val context: Context
+    private val context: Context,
+    private val userProfilePreferences: UserProfilePreferences = UserProfilePreferences(context)
 ) {
+    /**
+     * 每次進播放頁都會重建引擎，這裡順便重讀一次設定頁的生理參數，
+     * 使用者剛改完就會套用到這一堂課（見 [UserProfilePreferences]）。
+     */
     fun create(): ScoringEngine = ScoringEngine(
         config = EngineConfig(),
-        heartRateProfile = DEFAULT_USER_PROFILE
+        heartRateProfile = userProfilePreferences.load()
     )
 
     /**
@@ -54,20 +56,11 @@ class ScoringEngineFactory(
 
     private companion object {
         val KEY_ID_PATTERN = Regex("[A-Za-z0-9._-]+")
+        // 檔名＝標註端交付的原始檔名 `<課程名>-<課程 id>.maf`，key 是 MovieRepository 的 movieId。
         val MAF_FILE_BY_MOVIE_ID = mapOf(
             0L to "銀髮族健康操-17421781954041251.maf",
             1L to "初階瑜珈-17421914658801191.maf",
             2L to "太極藝術體驗課-17428046223601321.maf"
-        )
-        // TODO: 目前沒有使用者生理資料設定頁面，先用固定預設值讓心率安全管線與熱量估算可運作。
-        // 之後有使用者資料來源時，應改由呼叫端注入真實的 UserProfile。
-        val DEFAULT_USER_PROFILE = UserProfile(
-            ageYears = 30,
-            restingHeartRateBpm = 65,
-            biologicalSex = BiologicalSex.MALE,
-            weightKg = 70f,
-            heightCm = 170f,
-            calorieModel = CalorieModel.VO2R
         )
     }
 }

@@ -6,6 +6,7 @@ import com.fitness.device.api.IDeviceManager
 import com.johnson.fitness.data.DeviceAutoConnect
 import com.johnson.fitness.data.LastDevicePreferences
 import com.johnson.fitness.data.ScoringEngineFactory
+import com.johnson.fitness.data.UserProfilePreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,8 +25,12 @@ class FitnessApp : Application() {
         LastDevicePreferences(this)
     }
 
+    val userProfilePreferences: UserProfilePreferences by lazy {
+        UserProfilePreferences(this)
+    }
+
     val scoringEngineFactory: ScoringEngineFactory by lazy {
-        ScoringEngineFactory(this)
+        ScoringEngineFactory(this, userProfilePreferences)
     }
 
     override fun onCreate() {

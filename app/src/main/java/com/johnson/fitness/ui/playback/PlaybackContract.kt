@@ -49,6 +49,9 @@ data class PlaybackState(
         "順序" to "尚未啟動"
     ),
     val heartRate: Int = 0,
+    // Core 依 UserProfile 的 %HRR 算出的心率強度區間（1..5＝白/藍/綠/黃/紅），
+    // -1 代表沒有有效心率。UI 不要自己另算一套門檻，否則設定頁改了生理參數也不會反映。
+    val heartRateZone: Int = -1,
     val grade: String = "",
     val finalScore: Int? = null,
     // 整堂課沒有任何可顯示分數（Core 全程低 confidence）：成果卡顯示「無有效評分」而非 0 分／D 級（決策 A1）

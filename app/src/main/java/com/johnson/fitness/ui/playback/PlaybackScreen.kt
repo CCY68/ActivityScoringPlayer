@@ -328,7 +328,7 @@ fun PlaybackScreen(
                     imuSampleCount = state.imuSampleCount,
                     scoringStatus = state.scoringStatus
                 )
-                HeartRateCard(heartRate = state.heartRate)
+                HeartRateCard(heartRate = state.heartRate, zone = state.heartRateZone)
                 AccuracyCard(
                     accuracy = state.accuracy,
                     awaitingMotion = state.awaitingMotion,
@@ -699,10 +699,11 @@ private fun ScoreCard(
 }
 
 @Composable
-private fun HeartRateCard(heartRate: Int) {
-    val zone  = heartRateZone(heartRate)
-    val zColor = zoneColor(zone)
-    val zName  = zoneName(zone)
+private fun HeartRateCard(heartRate: Int, zone: Int) {
+    // 區間一律用 Core 算好的（它才知道使用者的年齡與靜息心率），畫面不自己算門檻。
+    val effectiveZone = if (heartRate > 0 && zone in 1..5) zone else 0
+    val zColor = zoneColor(effectiveZone)
+    val zName  = zoneName(effectiveZone)
 
     HudCard {
         Row(verticalAlignment = Alignment.Bottom) {
@@ -725,13 +726,13 @@ private fun HeartRateCard(heartRate: Int) {
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            text = if (heartRate > 0) "ZONE $zone · $zName" else "-- --",
-            color = if (heartRate > 0) zColor else JohnsonColors.TextTertiary,
+            text = if (effectiveZone > 0) "ZONE $effectiveZone · $zName" else "-- --",
+            color = if (effectiveZone > 0) zColor else JohnsonColors.TextTertiary,
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
         Spacer(Modifier.height(7.dp))
-        HrZoneBars(activeZone = zone)
+        HrZoneBars(activeZone = effectiveZone)
     }
 }
 
@@ -1276,21 +1277,14 @@ private fun FinalMetricStat(value: String, label: String, modifier: Modifier = M
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-private fun heartRateZone(bpm: Int): Int = when {
-    bpm <= 0  -> 0
-    bpm < 115 -> 1
-    bpm < 133 -> 2
-    bpm < 152 -> 3
-    bpm < 172 -> 4
-    else      -> 5
-}
-
+// 名稱對應 Core `IntensityLevelCalculator` 的 %HRR 分界（20／40／60／80）：
+// 白＝<20%、藍＝20–40%、綠＝40–60%、黃＝60–80%、紅＝≥80%。
 private fun zoneName(zone: Int): String = when (zone) {
-    1    -> "恢復"
-    2    -> "燃脂"
+    1    -> "極輕鬆"
+    2    -> "熱身"
     3    -> "有氧"
-    4    -> "力量"
-    5    -> "衝刺"
+    4    -> "強度"
+    5    -> "極高"
     else -> "--"
 }
 
@@ -1405,7 +1399,7 @@ private fun PlaybackScoringPreview() {
                 imuSampleCount = 325,
                 scoringStatus = "Core 評分中"
             )
-            HeartRateCard(heartRate = 150)
+            HeartRateCard(heartRate = 150, zone = 3)
             AccuracyCard(
                 accuracy = 89,
                 aspectScores = mapOf("節奏" to 92, "軌跡" to 86, "順序" to null),
