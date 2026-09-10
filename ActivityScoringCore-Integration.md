@@ -29,6 +29,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 2026-09-09 | `8da87a2`（main） | 367,588 bytes | PR-C1c：節奏不容忍 2× 整流歧義（A6）、刪除 PLV 快分量（B4）；行為對 Player 無介面變更 |
 | 2026-09-10 | `7a0f399`（main） | 410,361 bytes（sha256 前 16 碼 `a8994d7ffd5bb62d`） | D2 活動參與指標：新增 `ScoringEngine.participation: StateFlow<ParticipationSnapshot>`；**`stop()` 介面變更**為 `suspend fun stop(videoTimeMs: Long? = null): ParticipationSnapshot`（原始碼相容，舊呼叫 `engine.stop()` 照舊可用）。含 D2.1（`regularityMinWindows = 3`、`regularityMinPeriodicity = 0.50`、`regularityMinActiveRatio = 0.75`）與 D2.2（`countOutsideSegments = true`，整堂課統計）。三面向與心率行為不變 |
 | 2026-09-11 | `aa93e93`（main） | 421,770 bytes | PR-C4 契約收斂（族 B 前臂方向接線、共用向量）、PR-C3 中心值混合路徑（`descriptors[].value` 有值時才生效，PROVISIONAL）、離線估計器細化；`DescriptorFrame` 多三個尾端欄位，Player 需重新編譯 |
+| 2026-09-11 | `2fe2cf7`（main） | 448,345 bytes | D1 前臂仰角通道（`ScoringConfig.elevationChannelEnabled` 預設 false，關閉時逐位元不變）、MAF `forearm_elevation_reference` 解析、靜止窗 planarity NaN 修正；Core 281/281 |
 
 ### 目前內建的 device-module.aar 版本
 
