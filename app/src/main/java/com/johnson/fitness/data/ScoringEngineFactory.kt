@@ -25,8 +25,10 @@ class ScoringEngineFactory(
      * 從 assets 讀取指定課程的 MAF 檔位元組；檔案不存在或讀取失敗回傳 null，
      * 呼叫端據此判斷是否進入「僅播放影片、不評分」的降級模式（見 PlaybackViewModel）。
      */
-    fun readMafBytes(movieId: Long): ByteArray? =
-        runCatching { context.readMafAssetBytes("motions/$movieId.maf") }.getOrNull()
+    fun readMafBytes(movieId: Long): ByteArray? {
+        val fileName = MAF_FILE_BY_MOVIE_ID[movieId] ?: return null
+        return runCatching { context.readMafAssetBytes("motions/$fileName") }.getOrNull()
+    }
 
     /** 載入標註端交付的 AES-256-GCM JSON 信封；key 依信封內 key_id 從 assets 配對。 */
     fun loadMaf(engine: ScoringEngine, movieId: Long): MafLoadResult? {
@@ -52,6 +54,11 @@ class ScoringEngineFactory(
 
     private companion object {
         val KEY_ID_PATTERN = Regex("[A-Za-z0-9._-]+")
+        val MAF_FILE_BY_MOVIE_ID = mapOf(
+            0L to "銀髮族健康操-17421781954041251.maf",
+            1L to "初階瑜珈-17421914658801191.maf",
+            2L to "太極藝術體驗課-17428046223601321.maf"
+        )
         // TODO: 目前沒有使用者生理資料設定頁面，先用固定預設值讓心率安全管線與熱量估算可運作。
         // 之後有使用者資料來源時，應改由呼叫端注入真實的 UserProfile。
         val DEFAULT_USER_PROFILE = UserProfile(
