@@ -903,7 +903,10 @@ class PlaybackViewModel(
             }
             is PlaybackIntent.StartImuRecording -> {
                 viewModelScope.launch {
-                    val result = withContext(Dispatchers.IO) { imuCsvStore.startRecording() }
+                    // 檔名要帶課程編號（見 ImuCsvFileNaming），拿不到 courseId 時退回 "unknown"，
+                    // 不讓整次收錄直接失敗。
+                    val courseId = _state.value.movie?.courseId?.takeIf { it.isNotBlank() } ?: "unknown"
+                    val result = withContext(Dispatchers.IO) { imuCsvStore.startRecording(courseId) }
                     result.onSuccess { fileName ->
                         _state.update {
                             it.copy(

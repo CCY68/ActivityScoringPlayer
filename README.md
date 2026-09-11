@@ -47,6 +47,7 @@ Google TV 示範 App：把 **`activity-scoring-core.aar`（Module B 評分引擎
 | 首頁 | 影片牆：依課程分類分列（每列橫向捲動、D-pad 導覽、焦點放大），卡片顯示標題、時長與「可評分／僅播放」 |
 | 詳情頁 | 課程說明、是否有 `.maf`、「開始課程」→ 選擇播放模式（正常 B20／Replay CSV）與是否收錄 CSV |
 | 播放頁 | 影片 + 即時評分 HUD（三面向）＋ 心率區間；結束顯示成果卡 |
+| 錄製資料 | 首頁側欄「數據」。列出本機收錄的 IMU CSV，可直接回放、可刪除（見下「錄製資料頁」一節） |
 | 設定 | 藍牙配對、使用者資料（生理參數，見下） |
 | 藍牙 | 掃描、連線、記住上次裝置 |
 
@@ -114,6 +115,20 @@ GET https://asia.welltivity.com.tw/api/app/open/course/info?courseId=<courseId>
 沒調整過時使用 **Demo 預設值**（30 歲／靜息 65 bpm／男性／70 kg／170 cm），畫面上會明白標示；
 這組值不是任何真實受測者的資料。不提供 β 阻斷劑與處方心率上下限欄位（屬醫療用途，不在本 Demo 範圍）。
 
+## 錄製資料頁
+
+首頁側欄「數據」進去是**錄製資料頁**（`ui/recordings/`），列出本機收錄的 IMU CSV
+（`data/ImuCsvStore.listRecordings()`），電視遙控器可直接操作，不用再透過系統檔案選擇器找檔案。
+
+- 每列顯示檔名、對到的課程名稱（由檔名前段的課程編號比對 `courses.json`；舊檔名或對不到課程時
+  顯示「未知課程」）、錄製時間、檔案大小，以及筆數／時長（背景讀檔計算，算好前顯示「計算中…」）。
+- **回放**：檔名帶課程編號且對得到課程，直接進播放頁 Replay CSV 模式；舊檔名或對不到課程時，
+  先跳出「選擇課程」對話框（只列有 `.maf` 的課程），選完才進播放頁。
+- **刪除**：二次確認後刪除，Android 10 以上連同 MediaStore 索引一起清掉。
+- 空清單時顯示提示：到課程詳情頁選「正常模式（B20）→ 收錄 CSV」開始錄製。
+
+這頁只負責列舉現有檔案，**不會**修改「全程靜坐錄製流程」（下一節）本身的錄製步驟。
+
 ## 全程靜坐錄製流程
 
 Core 的評分回歸測試需要一份**真的坐著不動**的 IMU 錄製當零分錨（Core `docs/評分修復更新計畫_v1_20260907.md`
@@ -143,9 +158,14 @@ Core 的評分回歸測試需要一份**真的坐著不動**的 IMU 錄製當零
 
 **取檔與交付**
 
-- Android 10 以上：`Download/ActivityScoringPlayer/<yyyy-MM-ddTHH:mm:ss.SSS>.csv`；
-  更舊的版本落在 App 專屬的 Documents 目錄。
-- 取回：`adb pull /sdcard/Download/ActivityScoringPlayer/`。
+- 檔名格式 `<courseId>_<yyyy-MM-dd_HH-mm-ss-SSS>.csv`（例：`17421781954041251_2026-09-11_22-33-55-680.csv`），
+  課程編號拿不到時用 `unknown` 代替。App 內建的「錄製資料頁」（首頁側欄「數據」）可以直接看到
+  每一支錄製對到哪堂課、錄了多久，不用自己對檔名；這裡的手動取檔流程是給要把素材搬去 Core
+  `testdata/imu/` 的情境用的。
+- Android 10 以上：`Download/ActivityScoringPlayer/<檔名>`；更舊的版本落在 App 專屬的
+  Documents 目錄（`getExternalFilesDir(Documents)`）。
+- 取回：Android 10 以上 `adb pull /sdcard/Download/ActivityScoringPlayer/`；
+  Android 9 以下（例如 Android 8 的電視盒）`adb pull /sdcard/Android/data/com.johnson.fitness/files/Documents/`。
 - 改名成 `<受測者>-still-<課程>-<原時間>.csv` 後放進 Core `testdata/imu/`，並在該目錄的 `README.md`
   表格補上筆數、時長、用途。**CSV 本身不加任何檔頭註解**（保持純資料；DeviceModule／Player 版本
   記在 Core `testdata/imu/README.md`）。

@@ -1,5 +1,6 @@
 package com.johnson.fitness.data
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
@@ -14,8 +15,6 @@ import com.fitness.device.model.ImuData
 import java.io.BufferedWriter
 import java.io.File
 import java.io.OutputStreamWriter
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 /** B20 IMU CSV 的錄製與讀取。錄製 listener 與健康資料管線完全獨立。 */
@@ -69,10 +68,11 @@ class ImuCsvStore(
         synchronized(lock) { timeline.reanchorAfterSeek() }
     }
 
-    fun startRecording(): Result<String> = runCatching {
+    /** [courseId] 用來讓檔名帶課程編號（見 [ImuCsvFileNaming]）；拿不到請傳 `"unknown"`。 */
+    fun startRecording(courseId: String): Result<String> = runCatching {
         synchronized(lock) {
             check(writer == null) { "IMU 已在錄製中" }
-            val fileName = SimpleDateFormat(FILE_NAME_PATTERN, Locale.US).format(Date()) + ".csv"
+            val fileName = ImuCsvFileNaming.buildFileName(courseId)
             try {
                 val (uri, newWriter) = createWriter(fileName)
                 outputUri = uri
@@ -119,6 +119,129 @@ class ImuCsvStore(
                 mediaStoreOutput = false
             }
             completedUri
+        }
+    }
+
+    /** 錄製資料頁的一列。[courseId] 為 null 代表舊檔名或無法解析，畫面應顯示「未知課程」。 */
+    data class Recording(
+        val uri: Uri,
+        val fileName: String,
+        val courseId: String?,
+        /** epoch ms；檔名能解析出時間就用檔名，否則退回檔案 mtime。 */
+        val recordedAt: Long,
+        val bytes: Long
+    )
+
+    data class RecordingSummary(val sampleCount: Int, val firstMs: Long, val lastMs: Long)
+
+    /**
+     * 列出本機已收錄的 IMU CSV，依 [Recording.recordedAt] 新到舊排序。
+     * &lt; Q 掃 App 專屬 Documents 目錄；Q+ 查 MediaStore 的 `Download/ActivityScoringPlayer/`。
+     * 會讀檔案系統／ContentResolver，呼叫端請放在背景執行緒。
+     */
+    fun listRecordings(): List<Recording> {
+        val recordings = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            listRecordingsFromMediaStore()
+        } else {
+            listRecordingsFromDocumentsDir()
+        }
+        return recordings.sortedByDescending { it.recordedAt }
+    }
+
+    private fun listRecordingsFromDocumentsDir(): List<Recording> {
+        val directory = context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS) ?: return emptyList()
+        val files = directory.listFiles { file -> file.isFile && file.extension.equals("csv", ignoreCase = true) }
+            ?: return emptyList()
+        return files.map { file ->
+            val parsed = ImuCsvFileNaming.parse(file.name)
+            Recording(
+                uri = Uri.fromFile(file),
+                fileName = file.name,
+                courseId = parsed.courseId,
+                recordedAt = parsed.recordedAtMs ?: file.lastModified(),
+                bytes = file.length()
+            )
+        }
+    }
+
+    private fun listRecordingsFromMediaStore(): List<Recording> {
+        val projection = arrayOf(
+            MediaStore.Downloads._ID,
+            MediaStore.Downloads.DISPLAY_NAME,
+            MediaStore.Downloads.SIZE,
+            MediaStore.Downloads.DATE_MODIFIED
+        )
+        // RELATIVE_PATH 實際寫進 MediaStore 時 Android 會補一個結尾的 "/"，用 LIKE 才不會因為
+        // 有沒有那個斜線就查不到（createWriter() 寫入時沒有帶）。
+        val selection = "${MediaStore.Downloads.RELATIVE_PATH} LIKE ? AND ${MediaStore.Downloads.IS_PENDING} = ?"
+        val selectionArgs = arrayOf("${Environment.DIRECTORY_DOWNLOADS}/ActivityScoringPlayer%", "0")
+        val recordings = mutableListOf<Recording>()
+        context.contentResolver.query(
+            MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DISPLAY_NAME)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.SIZE)
+            val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Downloads.DATE_MODIFIED)
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(nameCol) ?: continue
+                if (!name.endsWith(".csv", ignoreCase = true)) continue
+                val uri = ContentUris.withAppendedId(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cursor.getLong(idCol))
+                val parsed = ImuCsvFileNaming.parse(name)
+                // DATE_MODIFIED 這個欄位存的是秒，不是毫秒。
+                val mtimeMs = cursor.getLong(modifiedCol) * 1000L
+                recordings += Recording(
+                    uri = uri,
+                    fileName = name,
+                    courseId = parsed.courseId,
+                    recordedAt = parsed.recordedAtMs ?: mtimeMs,
+                    bytes = cursor.getLong(sizeCol)
+                )
+            }
+        }
+        return recordings
+    }
+
+    /** &lt; Q 直接刪檔；Q+ 交給 `ContentResolver`（連同 MediaStore 索引一起清掉）。 */
+    fun deleteRecording(uri: Uri): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.contentResolver.delete(uri, null, null) > 0
+        } else {
+            uri.path?.let { File(it).delete() } ?: false
+        }
+    }
+
+    /**
+     * 算筆數與時間跨度供列表顯示。檔案約 2 MB，逐行掃過去、不整檔讀成 [RawImuSample] 清單
+     * （這裡不需要排序或欄位型別轉換，只取 timestamp 欄位）。
+     */
+    fun summarize(uri: Uri): RecordingSummary {
+        val reader = context.contentResolver.openInputStream(uri)?.bufferedReader()
+            ?: error("無法開啟 CSV 檔案")
+        return reader.use { r ->
+            val header = r.readLine()?.split(',')?.map { it.trim().lowercase(Locale.US) }
+                ?: error("CSV 是空檔案")
+            // 跟 parse() 同一套規則：舊版 video_position_ms 語意上等於新版的 timestamp_ms。
+            val legacyVideoPosition = header.indexOf("video_position_ms").takeIf { it >= 0 }
+            val timestampCol = legacyVideoPosition
+                ?: header.indexOf("timestamp_ms").takeIf { it >= 0 }
+                ?: error("CSV 缺少 timestamp_ms 欄位")
+            var count = 0
+            var first = Long.MAX_VALUE
+            var last = Long.MIN_VALUE
+            r.lineSequence().forEach { line ->
+                if (line.isBlank()) return@forEach
+                val value = line.split(',').getOrNull(timestampCol)?.trim()?.toLongOrNull()
+                    ?: return@forEach
+                count++
+                if (value < first) first = value
+                if (value > last) last = value
+            }
+            if (count == 0) RecordingSummary(0, 0L, 0L) else RecordingSummary(count, first, last)
         }
     }
 
@@ -186,7 +309,6 @@ class ImuCsvStore(
     }
 
     private companion object {
-        const val FILE_NAME_PATTERN = "yyyy-MM-dd'T'HH:mm:ss.SSS"
         const val CSV_HEADER = "timestamp_ms,ax,ay,az,gx,gy,gz"
         const val IMU_SAMPLE_INTERVAL_MS = ImuVideoTimeline.DEFAULT_SAMPLE_INTERVAL_MS
     }

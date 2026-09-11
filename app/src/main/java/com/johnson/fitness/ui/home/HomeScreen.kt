@@ -69,6 +69,7 @@ fun HomeScreen(
     onMovieClick: (Long) -> Unit,
     onErrorClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    onRecordingsClick: () -> Unit,
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -91,7 +92,7 @@ fun HomeScreen(
             .background(JohnsonColors.BgApp)
     ) {
         // Left Nav Rail
-        NavRail(onSettingsClick = onSettingsClick)
+        NavRail(onSettingsClick = onSettingsClick, onRecordingsClick = onRecordingsClick)
 
         // Main content
         Box(modifier = Modifier.fillMaxSize()) {
@@ -158,7 +159,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun NavRail(onSettingsClick: () -> Unit) {
+private fun NavRail(onSettingsClick: () -> Unit, onRecordingsClick: () -> Unit) {
     // 104dp 寬的側邊導覽欄是照 TV 10-foot 畫面的比例設計的；手機螢幕窄很多，同樣寬度會佔掉
     // 過高比例的畫面，這裡窄螢幕時縮小欄寬、圖示與間距，而不是整個拿掉（維持左側常駐導覽的結構）。
     val compact = isCompactWidth()
@@ -198,7 +199,7 @@ private fun NavRail(onSettingsClick: () -> Unit) {
 
         NavItem(label = "首頁", isActive = true, compact = compact)
         NavItem(label = "探索", compact = compact)
-        NavItem(label = "數據", compact = compact)
+        NavItem(label = "數據", compact = compact, onClick = onRecordingsClick)
 
         Spacer(Modifier.weight(1f))
 
@@ -226,22 +227,69 @@ private fun NavRail(onSettingsClick: () -> Unit) {
     }
 }
 
+/**
+ * [onClick] 為 null 時維持原本「不可點的裝飾標籤」（目前只剩「探索」）；
+ * 有給的話（目前是「數據」）改用 Card 承載，才能吃到 D-pad 焦點與觸控點擊，
+ * 焦點時比照 [ClassCard] 亮起 [JohnsonColors.FocusRing] 邊框，10-foot 距離下才看得出焦點在哪。
+ */
 @Composable
-private fun NavItem(label: String, isActive: Boolean = false, compact: Boolean = false) {
-    Box(
+private fun NavItem(
+    label: String,
+    isActive: Boolean = false,
+    compact: Boolean = false,
+    onClick: (() -> Unit)? = null
+) {
+    val width = if (compact) 56.dp else 72.dp
+    val height = if (compact) 44.dp else 56.dp
+    val fontSize = if (compact) 10.sp else 12.sp
+
+    if (onClick == null) {
+        Box(
+            modifier = Modifier
+                .width(width)
+                .height(height)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isActive) JohnsonColors.BrandTint else Color.Transparent),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                color = if (isActive) JohnsonColors.Brand else JohnsonColors.TextTertiary,
+                fontSize = fontSize,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
+        return
+    }
+
+    var isFocused by remember { mutableStateOf(false) }
+    Card(
+        onClick = onClick,
         modifier = Modifier
-            .width(if (compact) 56.dp else 72.dp)
-            .height(if (compact) 44.dp else 56.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(if (isActive) JohnsonColors.BrandTint else Color.Transparent),
-        contentAlignment = Alignment.Center
+            .width(width)
+            .height(height)
+            .touchClickable(onClick = onClick)
+            .onFocusChanged { isFocused = it.isFocused }
     ) {
-        Text(
-            text = label,
-            color = if (isActive) JohnsonColors.Brand else JohnsonColors.TextTertiary,
-            fontSize = if (compact) 10.sp else 12.sp,
-            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
-        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (isActive) JohnsonColors.BrandTint else Color.Transparent)
+                .border(
+                    width = if (isFocused) 2.dp else 0.dp,
+                    color = if (isFocused) JohnsonColors.FocusRing else Color.Transparent,
+                    shape = RoundedCornerShape(14.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                color = if (isActive) JohnsonColors.Brand else JohnsonColors.TextTertiary,
+                fontSize = fontSize,
+                fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal
+            )
+        }
     }
 }
 

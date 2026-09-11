@@ -16,6 +16,7 @@ import com.johnson.fitness.ui.error.ErrorScreen
 import com.johnson.fitness.ui.home.HomeScreen
 import com.johnson.fitness.ui.playback.PlaybackScreen
 import com.johnson.fitness.ui.playback.PlaybackLaunchConfig
+import com.johnson.fitness.ui.recordings.RecordingsScreen
 import com.johnson.fitness.ui.settings.SettingsScreen
 
 @Composable
@@ -29,7 +30,8 @@ fun AppNavigation() {
             HomeScreen(
                 onMovieClick = { movieId -> navController.navigate("detail/$movieId") },
                 onErrorClick = { navController.navigate("error") },
-                onSettingsClick = { navController.navigate("settings") }
+                onSettingsClick = { navController.navigate("settings") },
+                onRecordingsClick = { navController.navigate("recordings") }
             )
         }
         composable(
@@ -60,6 +62,15 @@ fun AppNavigation() {
         }
         composable("error") {
             ErrorScreen(onDismiss = { navController.popBackStack() })
+        }
+        composable("recordings") {
+            RecordingsScreen(
+                onBack = { navController.popBackStack() },
+                onReplay = { movieId, config ->
+                    playbackLaunchConfig = config
+                    navController.navigate("playback/$movieId")
+                }
+            )
         }
         composable("settings") {
             SettingsScreen(
