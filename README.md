@@ -129,6 +129,44 @@ GET https://asia.welltivity.com.tw/api/app/open/course/info?courseId=<courseId>
 
 這頁只負責列舉現有檔案，**不會**修改「全程靜坐錄製流程」（下一節）本身的錄製步驟。
 
+### 上傳到 Google Drive
+
+電視上沒有 Google 登入，Drive API 沒辦法匿名寫入，所以上傳走**使用者自己部署的
+Google Apps Script Web App** 當中繼（`data/RecordingUploader.kt`）。網址與 token
+不寫進 repo，只存在 App 的 SharedPreferences（`data/UploadPreferences.kt`），設定頁
+「設定 → 錄製上傳」可以編輯／清空，但電視遙控器打字很痛苦，**開發期主要靠 adb 灌值**：
+
+```
+adb shell am start -n com.johnson.fitness/.MainActivity --es upload_url "<Apps Script /exec 網址>" --es upload_token "<token>"
+```
+
+只有 **debug build** 接這兩個 intent extra（`MainActivity.applyDebugUploadConfigIfPresent`）；
+release 版不接，避免上傳目的地被任何外部 intent 竄改。指令可以只帶其中一個 extra
+（例如只想換 token）；成功會跳 Toast「已更新上傳設定」。
+
+錄製資料頁每列在「已設定」時會多一顆「上傳」（已上傳過則是「重新上傳」）按鈕，
+頂部有「全部上傳」只處理尚未上傳成功的檔案、逐一序列進行並顯示「3/7 上傳中…」；
+已上傳過的檔案重開 App 仍顯示「✓ 已上傳」（記在 `UploadPreferences`）。
+未設定網址／token 時，整頁隱藏所有上傳相關按鈕，副標改顯示「未設定上傳（設定 → 錄製上傳）」。
+
+**中繼契約**（Apps Script 端已部署好，App 端不用管實作）：
+
+```
+POST <uploadUrl>
+Content-Type: application/json
+
+{ "token": "<token>", "fileName": "17421781954041251_2026-09-11_22-33-55-680.csv",
+  "subfolder": "17421781954041251", "contentBase64": "<CSV 內容的 base64>" }
+```
+
+`subfolder` 用課程編號（`Recording.courseId`）分資料夾，拿不到就不帶這個欄位。
+回應一律 HTTP 200，要看 body 的 `ok`：成功
+`{"ok":true,"id":"…","url":"https://drive.google.com/…","name":"…"}`，
+失敗 `{"ok":false,"error":"…"}`。實測還發現中繼偶爾會把這次 POST 誤答成 doGet
+的健康檢查（`ok=true` 但沒有 `id`）——這種情況 App 端會自動重試一次，重試後還是
+這樣才當失敗回報。`/exec` 對 POST 會回 302 轉到 `script.googleusercontent.com`
+（該端點只接受 GET），OkHttp 預設 `followRedirects(true)` 會自動處理，不用自己實作轉址。
+
 ## 全程靜坐錄製流程
 
 Core 的評分回歸測試需要一份**真的坐著不動**的 IMU 錄製當零分錨（Core `docs/評分修復更新計畫_v1_20260907.md`

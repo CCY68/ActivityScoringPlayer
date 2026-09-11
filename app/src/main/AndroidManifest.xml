@@ -29,11 +29,14 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.ActivityScoringPlayer">
+        <!-- launchMode="singleTop"：debug 用 adb am start 灌上傳設定（見 MainActivity）時，
+             App 已在前景要能吃到 onNewIntent，不要每次都疊一個新 instance。 -->
         <activity
             android:name=".MainActivity"
             android:banner="@drawable/app_icon_your_company"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:screenOrientation="landscape">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

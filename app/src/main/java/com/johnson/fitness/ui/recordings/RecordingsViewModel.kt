@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.johnson.fitness.FitnessApp
 import com.johnson.fitness.data.ImuCsvStore
 import com.johnson.fitness.data.MovieRepository
+import com.johnson.fitness.data.RecordingUploader
+import com.johnson.fitness.data.UploadPreferences
 import com.johnson.fitness.model.Movie
 import com.johnson.fitness.ui.playback.PlaybackLaunchConfig
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 
 class RecordingsViewModel(application: Application) : AndroidViewModel(application) {
@@ -35,8 +40,21 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         videoPositionProvider = { null }
     )
 
+    private val uploadPreferences: UploadPreferences = (application as FitnessApp).uploadPreferences
+    private val uploader = RecordingUploader(application, uploadPreferences)
+
+    // 單一上傳佇列：單筆點擊與「全部上傳」都經 enqueueUpload() 取得這把鎖才會真的打網路，
+    // 同一時間只有一筆在跑，避免兩條路徑把同一個檔案排兩次（見 enqueueUpload 的說明）。
+    private val uploadMutex = Mutex()
+
     init {
         load()
+        // adb 灌值／設定頁改完網址、token 後，停在這頁的畫面也要跟著更新（不用重新整頁）。
+        viewModelScope.launch {
+            uploadPreferences.configured.collect { configured ->
+                _state.update { it.copy(uploadConfigured = configured) }
+            }
+        }
     }
 
     fun onIntent(intent: RecordingsIntent) {
@@ -50,6 +68,8 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
             is RecordingsIntent.DeleteCancelled ->
                 _state.update { it.copy(pendingDelete = null) }
             is RecordingsIntent.DeleteConfirmed -> onDeleteConfirmed()
+            is RecordingsIntent.UploadClicked -> onUploadClicked(intent.recording)
+            is RecordingsIntent.UploadAllClicked -> onUploadAllClicked()
         }
     }
 
@@ -65,6 +85,8 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
                     items = items,
                     storageLocationLabel = storageLocationLabel(),
                     scorableCourses = movies.filter(Movie::hasScoringData)
+                    // uploadConfigured 不在這裡設：init 已經在收集 uploadPreferences.configured，
+                    // 一律由那個 Flow 更新，避免兩個地方各自寫一次互相打架。
                 )
             }
             // 摘要（筆數／時長）要讀整份 CSV，比列表本身慢很多；先讓列表用檔名/大小顯示出來，
@@ -136,9 +158,102 @@ class RecordingsViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    private fun onUploadClicked(recording: ImuCsvStore.Recording) {
+        viewModelScope.launch { enqueueUpload(recording) }
+    }
+
+    /**
+     * 只排入目前列表裡還沒成功上傳過、也還沒在排隊／上傳中的那些，逐一序列進行
+     * （中繼是單機 Apps Script，同時打好幾支沒有意義）。
+     */
+    private fun onUploadAllClicked() {
+        val pending = _state.value.items.filter {
+            it.uploadStatus == UploadStatus.NOT_UPLOADED || it.uploadStatus == UploadStatus.FAILED
+        }
+        if (pending.isEmpty()) return
+        // 立刻標成 QUEUED：一來讓「全部上傳」按鈕馬上被鎖住（RecordingsScreen 靠 items 的狀態判斷要不要
+        // disable，不等第一筆真的開始跑），二來讓這幾列馬上顯示「等待上傳」而不是空等到輪到才有反應。
+        pending.forEach { item ->
+            updateItem(item.recording) { it.copy(uploadStatus = UploadStatus.QUEUED, uploadError = null) }
+        }
+        viewModelScope.launch {
+            pending.forEachIndexed { index, item ->
+                _state.update { it.copy(uploadAllProgress = UploadAllProgress(index + 1, pending.size)) }
+                enqueueUpload(item.recording, alreadyQueued = true)
+            }
+            _state.update { it.copy(uploadAllProgress = null) }
+        }
+    }
+
+    /**
+     * 單一上傳佇列的入口：單筆點擊與「全部上傳」都經這裡，真正的網路呼叫用 [uploadMutex] 序列化，
+     * 同一時間只有一筆在跑——避免單筆上傳中又被「全部上傳」把同一檔排一次，或反過來。
+     *
+     * 入列前先查一次該檔目前狀態，UPLOADING／QUEUED 就跳過（已經在處理中，不要重複排）；
+     * [alreadyQueued] 為 true 代表呼叫端（[onUploadAllClicked]）已經先標成 QUEUED，這裡不用再標一次，
+     * 但取得鎖、真的輪到這一筆時還是會重查一次最新狀態——例如排隊期間這筆被刪除了，就不會再去上傳它。
+     */
+    private suspend fun enqueueUpload(recording: ImuCsvStore.Recording, alreadyQueued: Boolean = false) {
+        if (!alreadyQueued) {
+            val current = currentItem(recording) ?: return
+            if (current.uploadStatus == UploadStatus.UPLOADING || current.uploadStatus == UploadStatus.QUEUED) return
+            updateItem(recording) { it.copy(uploadStatus = UploadStatus.QUEUED, uploadError = null) }
+        }
+        uploadMutex.withLock {
+            val latest = currentItem(recording) ?: return@withLock
+            if (latest.uploadStatus != UploadStatus.QUEUED) return@withLock
+            uploadOne(recording)
+        }
+    }
+
+    private fun currentItem(recording: ImuCsvStore.Recording): RecordingItem? =
+        _state.value.items.find { it.recording.uri == recording.uri }
+
+    /** 「上傳／重新上傳」單一按鈕與「全部上傳」共用同一段邏輯，狀態變化直接反映在該列上。 */
+    private suspend fun uploadOne(recording: ImuCsvStore.Recording) {
+        updateItem(recording) { it.copy(uploadStatus = UploadStatus.UPLOADING, uploadError = null) }
+        // 上傳中按返回會清掉 ViewModel、取消 viewModelScope；阻塞中的 OkHttp 呼叫不會跟著停，
+        // 檔案照樣寫進 Drive，但取消後回到這裡就不會記 setUploaded，下次進頁看到的是「未上傳」、
+        // 再傳一次就重複。所以「送出＋記錄成功」這一段標成不可取消，做完才讓協程結束
+        val result = withContext(NonCancellable) {
+            uploader.upload(recording).onSuccess { uploaded ->
+                uploadPreferences.setUploaded(recording.fileName, uploaded.url)
+            }
+        }
+        result.fold(
+            onSuccess = { uploaded ->
+                updateItem(recording) {
+                    it.copy(uploadStatus = UploadStatus.UPLOADED, uploadedUrl = uploaded.url, uploadError = null)
+                }
+                _effect.send(RecordingsEffect.ShowToast("已上傳 ${recording.fileName}"))
+            },
+            onFailure = { error ->
+                val message = error.message ?: "上傳失敗"
+                updateItem(recording) { it.copy(uploadStatus = UploadStatus.FAILED, uploadError = message) }
+                _effect.send(RecordingsEffect.ShowToast("上傳失敗：${recording.fileName}"))
+            }
+        )
+    }
+
+    private fun updateItem(recording: ImuCsvStore.Recording, transform: (RecordingItem) -> RecordingItem) {
+        _state.update { state ->
+            state.copy(
+                items = state.items.map { item ->
+                    if (item.recording.uri == recording.uri) transform(item) else item
+                }
+            )
+        }
+    }
+
     private fun ImuCsvStore.Recording.toItem(movies: List<Movie>): RecordingItem {
         val title = courseId?.let { id -> movies.find { it.courseId == id }?.title }
-        return RecordingItem(recording = this, courseTitle = title)
+        val uploadedUrl = uploadPreferences.getUploadedUrl(fileName)
+        return RecordingItem(
+            recording = this,
+            courseTitle = title,
+            uploadStatus = if (uploadedUrl != null) UploadStatus.UPLOADED else UploadStatus.NOT_UPLOADED,
+            uploadedUrl = uploadedUrl
+        )
     }
 
     private fun storageLocationLabel(): String =

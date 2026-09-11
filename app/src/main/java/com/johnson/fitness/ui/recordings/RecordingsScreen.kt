@@ -105,12 +105,43 @@ fun RecordingsScreen(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "${state.storageLocationLabel}・共 ${state.items.size} 筆",
+                        text = buildString {
+                            append(state.storageLocationLabel)
+                            append("・共 ${state.items.size} 筆")
+                            // 沒設定上傳網址／token 時整頁不顯示任何上傳按鈕，副標告訴使用者去哪裡設定。
+                            if (!state.uploadConfigured) append("・未設定上傳（設定 → 錄製上傳）")
+                        },
                         color = JohnsonColors.TextTertiary,
                         fontSize = 13.sp
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                if (state.uploadConfigured) {
+                    val progress = state.uploadAllProgress
+                    // 只要有任何一列在排隊或上傳中（不論是單筆點擊還是「全部上傳」在跑），這顆按鈕就要鎖住，
+                    // 不然使用者可以在批次進行中又按一次「全部上傳」，把同一批檔案重複排進佇列。
+                    val anyActive = state.items.any {
+                        it.uploadStatus == UploadStatus.UPLOADING || it.uploadStatus == UploadStatus.QUEUED
+                    }
+                    val hasPending = state.items.any {
+                        it.uploadStatus == UploadStatus.NOT_UPLOADED || it.uploadStatus == UploadStatus.FAILED
+                    }
+                    val enabled = !anyActive && hasPending
+                    val label = when {
+                        progress != null -> "${progress.current}/${progress.total} 上傳中…"
+                        anyActive -> "上傳中…"
+                        else -> "全部上傳"
+                    }
+                    val onUploadAll = { viewModel.onIntent(RecordingsIntent.UploadAllClicked) }
+                    Button(
+                        onClick = onUploadAll,
+                        enabled = enabled,
+                        modifier = Modifier.touchClickable(enabled = enabled, onClick = onUploadAll)
+                    ) {
+                        Text(label)
+                    }
+                    Spacer(Modifier.width(12.dp))
+                }
                 Button(onClick = onBack, modifier = Modifier.touchClickable(onClick = onBack)) { Text("返回") }
             }
 
@@ -142,8 +173,10 @@ fun RecordingsScreen(
                     items(state.items, key = { it.recording.uri.toString() }) { item ->
                         RecordingRow(
                             item = item,
+                            uploadConfigured = state.uploadConfigured,
                             onReplay = { viewModel.onIntent(RecordingsIntent.ReplayClicked(item.recording)) },
-                            onDelete = { viewModel.onIntent(RecordingsIntent.DeleteRequested(item.recording)) }
+                            onDelete = { viewModel.onIntent(RecordingsIntent.DeleteRequested(item.recording)) },
+                            onUpload = { viewModel.onIntent(RecordingsIntent.UploadClicked(item.recording)) }
                         )
                     }
                 }
@@ -181,42 +214,81 @@ private fun EmptyState(horizontalPadding: Dp) {
 }
 
 @Composable
-private fun RecordingRow(item: RecordingItem, onReplay: () -> Unit, onDelete: () -> Unit) {
+private fun RecordingRow(
+    item: RecordingItem,
+    uploadConfigured: Boolean,
+    onReplay: () -> Unit,
+    onDelete: () -> Unit,
+    onUpload: () -> Unit
+) {
     val recording = item.recording
-    RowFrame {
-        Column(modifier = Modifier.weight(1f)) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        RowFrame {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = recording.fileName,
+                    color = JohnsonColors.TextPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = item.courseTitle ?: "未知課程",
+                    color = JohnsonColors.TextSecondary,
+                    fontSize = 13.sp
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = "${formatRecordedAt(recording.recordedAt)}・${formatBytes(recording.bytes)}・${summaryLabel(item.summary)}",
+                    color = JohnsonColors.TextTertiary,
+                    fontSize = 12.sp
+                )
+                if (uploadConfigured && item.uploadStatus == UploadStatus.UPLOADED) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(text = "✓ 已上傳", color = JohnsonColors.TextTertiary, fontSize = 12.sp)
+                }
+            }
+            Spacer(Modifier.width(16.dp))
+            Button(onClick = onReplay, modifier = Modifier.touchClickable(onClick = onReplay)) { Text("回放") }
+            if (uploadConfigured) {
+                Spacer(Modifier.width(8.dp))
+                // QUEUED 跟 UPLOADING 都不能再按：QUEUED 代表已經排進單一上傳佇列在等，
+                // 重複點擊只會被 RecordingsViewModel.enqueueUpload 忽略，這裡先在 UI 端擋掉比較直覺。
+                val busy = item.uploadStatus == UploadStatus.UPLOADING || item.uploadStatus == UploadStatus.QUEUED
+                val uploadLabel = when (item.uploadStatus) {
+                    UploadStatus.UPLOADED -> "重新上傳"
+                    UploadStatus.QUEUED -> "等待上傳"
+                    UploadStatus.UPLOADING -> "上傳中…"
+                    UploadStatus.NOT_UPLOADED, UploadStatus.FAILED -> "上傳"
+                }
+                Button(
+                    onClick = onUpload,
+                    enabled = !busy,
+                    modifier = Modifier.touchClickable(enabled = !busy, onClick = onUpload)
+                ) { Text(uploadLabel) }
+            }
+            Spacer(Modifier.width(8.dp))
+            Button(
+                onClick = onDelete,
+                modifier = Modifier.touchClickable(onClick = onDelete),
+                colors = ButtonDefaults.colors(
+                    containerColor = JohnsonColors.Ink400,
+                    contentColor = JohnsonColors.Gray0,
+                    focusedContainerColor = JohnsonColors.Red600,
+                    focusedContentColor = JohnsonColors.Gray0
+                )
+            ) { Text("刪除") }
+        }
+        // 上傳失敗的原因就地顯示在該列下方（比照 PlaybackScreen 的 alertMessage 用紅字提示），
+        // 不彈對話框打斷操作——列表可能同時有好幾筆在跑「全部上傳」，錯誤要各自對得到自己的那一列。
+        if (uploadConfigured && item.uploadStatus == UploadStatus.FAILED && !item.uploadError.isNullOrBlank()) {
             Text(
-                text = recording.fileName,
-                color = JohnsonColors.TextPrimary,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = item.courseTitle ?: "未知課程",
-                color = JohnsonColors.TextSecondary,
-                fontSize = 13.sp
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                text = "${formatRecordedAt(recording.recordedAt)}・${formatBytes(recording.bytes)}・${summaryLabel(item.summary)}",
-                color = JohnsonColors.TextTertiary,
-                fontSize = 12.sp
+                text = "上傳失敗：${item.uploadError}",
+                color = JohnsonColors.Red400,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(start = 24.dp, top = 4.dp)
             )
         }
-        Spacer(Modifier.width(16.dp))
-        Button(onClick = onReplay, modifier = Modifier.touchClickable(onClick = onReplay)) { Text("回放") }
-        Spacer(Modifier.width(8.dp))
-        Button(
-            onClick = onDelete,
-            modifier = Modifier.touchClickable(onClick = onDelete),
-            colors = ButtonDefaults.colors(
-                containerColor = JohnsonColors.Ink400,
-                contentColor = JohnsonColors.Gray0,
-                focusedContainerColor = JohnsonColors.Red600,
-                focusedContentColor = JohnsonColors.Gray0
-            )
-        ) { Text("刪除") }
     }
 }
 

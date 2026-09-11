@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog as MaterialAlertDialog
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.Button
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
@@ -54,6 +57,7 @@ fun SettingsScreen(
     val horizontalPadding = if (isCompactWidth()) 20.dp else 56.dp
     val context = LocalContext.current
     val preferences = (context.applicationContext as FitnessApp).userProfilePreferences
+    val uploadPreferences = (context.applicationContext as FitnessApp).uploadPreferences
 
     var profile by remember { mutableStateOf(preferences.load()) }
     var isCustomized by remember { mutableStateOf(preferences.isCustomized()) }
@@ -63,6 +67,16 @@ fun SettingsScreen(
         preferences.save(updated)
         isCustomized = true
     }
+
+    // 主要靠 debug 用的 adb intent 灌值（見 MainActivity），這裡的編輯對話框只是備用手段，
+    // 但網址一樣要驗證（只接受 https）——漏打 https:// 會讓 OkHttp 在真的上傳時崩潰，
+    // 存檔前擋掉、把原因顯示在對話框裡比事後崩潰好。
+    // 直接觀察偏好的 StateFlow，不 remember 一份副本：停在這頁時用 adb 灌值也會即時反映，
+    // 編輯對話框開啟時帶的也是最新值（否則按儲存會把剛灌進去的設定蓋回舊值）
+    val uploadUrl by uploadPreferences.uploadUrl.collectAsStateWithLifecycle()
+    val uploadToken by uploadPreferences.uploadToken.collectAsStateWithLifecycle()
+    var editingUploadUrl by remember { mutableStateOf(false) }
+    var editingUploadToken by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -199,6 +213,34 @@ fun SettingsScreen(
                     onClick = resetProfile
                 )
 
+                Spacer(Modifier.height(22.dp))
+
+                // Section: 錄製上傳
+                // 錄製資料頁「上傳到 Google Drive」的中繼設定；電視上沒有 Google 登入，
+                // Drive API 沒辦法匿名寫入，所以走使用者自己部署的 Apps Script Web App 當中繼
+                // （契約見 README「錄製資料頁」一節）。網址／token 是使用者的私有部署資訊，
+                // 只存在 UploadPreferences 的 SharedPreferences，不寫進 repo。
+                SectionLabel("錄製上傳")
+                Text(
+                    text = "設定錄製資料頁「上傳到 Google Drive」用的中繼網址與 token。" +
+                        "遙控器打字不方便，開發期建議用 adb 灌值（見 README）。",
+                    color = JohnsonColors.TextTertiary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
+                SettingActionRow(
+                    title = "上傳網址",
+                    valueText = uploadUrlSummary(uploadUrl),
+                    actionLabel = "編輯",
+                    onClick = { editingUploadUrl = true }
+                )
+                SettingActionRow(
+                    title = "上傳 Token",
+                    valueText = if (uploadToken.isBlank()) "未設定" else "已設定",
+                    actionLabel = "編輯",
+                    onClick = { editingUploadToken = true }
+                )
+
                 Spacer(Modifier.height(24.dp))
                 // Section: 版本
                 // 電視上常同時存在好幾次 side-load 的 build，出問題時第一個要問的是「裝的是哪一版」；
@@ -209,7 +251,104 @@ fun SettingsScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+
+        if (editingUploadUrl) {
+            UploadFieldEditDialog(
+                title = "上傳網址",
+                description = "Apps Script Web App 的 /exec 網址，需為 https 開頭（留空即清除）。",
+                initialValue = uploadUrl,
+                singleLine = true,
+                onSave = { newValue ->
+                    uploadPreferences.setUploadUrl(newValue).fold(
+                        onSuccess = {
+                            editingUploadUrl = false
+                            null
+                        },
+                        onFailure = { error -> error.message ?: "上傳網址格式不正確" }
+                    )
+                },
+                onCancel = { editingUploadUrl = false }
+            )
+        }
+
+        if (editingUploadToken) {
+            UploadFieldEditDialog(
+                title = "上傳 Token",
+                description = "中繼驗證用的 token（留空即清除）。",
+                initialValue = uploadToken,
+                singleLine = true,
+                onSave = { newValue ->
+                    uploadPreferences.setUploadToken(newValue)
+                    editingUploadToken = false
+                    null
+                },
+                onCancel = { editingUploadToken = false }
+            )
+        }
     }
+}
+
+/** 網址只顯示前 40 字＋刪節號——設定頁不是拿來核對完整網址的地方，只求看得出「有沒有設定、設的像不像」。 */
+private fun uploadUrlSummary(url: String): String = when {
+    url.isBlank() -> "未設定"
+    url.length <= 40 -> url
+    else -> "${url.take(40)}…"
+}
+
+/**
+ * 上傳網址／token 的共用編輯對話框；TV 遙控器打字很痛苦，主要靠 adb 灌值，這裡是備用手段。
+ *
+ * [onSave] 回傳非 null 代表驗證失敗的錯誤訊息——對話框留著、把原因顯示出來，不關閉；
+ * 回傳 null 代表存檔成功，呼叫端自己負責把對話框關掉（例如把 `editingXxx` 設回 false）。
+ */
+@Composable
+private fun UploadFieldEditDialog(
+    title: String,
+    description: String,
+    initialValue: String,
+    singleLine: Boolean,
+    onSave: (String) -> String?,
+    onCancel: () -> Unit
+) {
+    var text by remember { mutableStateOf(initialValue) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    MaterialAlertDialog(
+        onDismissRequest = {},
+        title = { Text(title, color = JohnsonColors.Gray0) },
+        text = {
+            Column {
+                Text(description, color = JohnsonColors.Gray100, fontSize = 13.sp)
+                Spacer(Modifier.height(8.dp))
+                TextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        errorMessage = null
+                    },
+                    singleLine = singleLine,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                errorMessage?.let { message ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(message, color = JohnsonColors.Red400, fontSize = 12.sp)
+                }
+            }
+        },
+        confirmButton = {
+            val onConfirm = { errorMessage = onSave(text) }
+            Button(onClick = onConfirm, modifier = Modifier.touchClickable(onClick = onConfirm)) {
+                Text("儲存")
+            }
+        },
+        dismissButton = {
+            Button(onClick = onCancel, modifier = Modifier.touchClickable(onClick = onCancel)) {
+                Text("取消")
+            }
+        },
+        containerColor = JohnsonColors.Ink600,
+        titleContentColor = JohnsonColors.Gray0,
+        textContentColor = JohnsonColors.Gray100
+    )
 }
 
 private fun weightKgOf(profile: UserProfile): Int =
