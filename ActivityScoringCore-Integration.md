@@ -31,6 +31,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 2026-09-11 | `aa93e93`（main） | 421,770 bytes | PR-C4 契約收斂（族 B 前臂方向接線、共用向量）、PR-C3 中心值混合路徑（`descriptors[].value` 有值時才生效，PROVISIONAL）、離線估計器細化；`DescriptorFrame` 多三個尾端欄位，Player 需重新編譯 |
 | 2026-09-11 | `2fe2cf7`（main） | 448,345 bytes | D1 前臂仰角通道（`ScoringConfig.elevationChannelEnabled` 預設 false，關閉時逐位元不變）、MAF `forearm_elevation_reference` 解析、靜止窗 planarity NaN 修正；Core 281/281 |
 | 2026-09-11 | `eba211b`（main） | 448,348 bytes（sha256 前 16 碼 `428c9ca14f219476`） | 以最新 main 重建；程式碼行為沿用 `2fe2cf7` 的 D1 仰角通道，後續 commit 為批次 B／C 成果與契約文件更新 |
+| 2026-09-11 | `d8b0675`（main） | 450,164 bytes | D1 仰角通道放開到無模板段（`Aspect.appliesTo`，通道預設仍關閉、關閉時逐位元不變）；Core 218/218 |
 
 ### 目前內建的 device-module.aar 版本
 
