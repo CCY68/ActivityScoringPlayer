@@ -30,6 +30,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 2026-09-10 | `7a0f399`（main） | 410,361 bytes（sha256 前 16 碼 `a8994d7ffd5bb62d`） | D2 活動參與指標：新增 `ScoringEngine.participation: StateFlow<ParticipationSnapshot>`；**`stop()` 介面變更**為 `suspend fun stop(videoTimeMs: Long? = null): ParticipationSnapshot`（原始碼相容，舊呼叫 `engine.stop()` 照舊可用）。含 D2.1（`regularityMinWindows = 3`、`regularityMinPeriodicity = 0.50`、`regularityMinActiveRatio = 0.75`）與 D2.2（`countOutsideSegments = true`，整堂課統計）。三面向與心率行為不變 |
 | 2026-09-11 | `aa93e93`（main） | 421,770 bytes | PR-C4 契約收斂（族 B 前臂方向接線、共用向量）、PR-C3 中心值混合路徑（`descriptors[].value` 有值時才生效，PROVISIONAL）、離線估計器細化；`DescriptorFrame` 多三個尾端欄位，Player 需重新編譯 |
 | 2026-09-11 | `2fe2cf7`（main） | 448,345 bytes | D1 前臂仰角通道（`ScoringConfig.elevationChannelEnabled` 預設 false，關閉時逐位元不變）、MAF `forearm_elevation_reference` 解析、靜止窗 planarity NaN 修正；Core 281/281 |
+| 2026-09-11 | `eba211b`（main） | 448,348 bytes（sha256 前 16 碼 `428c9ca14f219476`） | 以最新 main 重建；程式碼行為沿用 `2fe2cf7` 的 D1 仰角通道，後續 commit 為批次 B／C 成果與契約文件更新 |
 
 ### 目前內建的 device-module.aar 版本
 
@@ -37,6 +38,7 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 |---|---|---|---|
 | 2026-09-10 | `0bf8604`（main） | 138,447 bytes | B20 時戳改以裝置時鐘為主（`ImuData.deviceTimestampUs` 新增）、104→25 Hz 改格點重取樣、重連沿用時間軸、`setImuSampleRate()` 重連後自動重套 |
 | 2026-09-11 | `dev_wdl`（fix/late-frame-reorder） | 161,181 bytes | 亂序遲到幀整幀丟棄，不再誤判為感測器重開（實錄兩筆同毫秒樣本的來源）；含停頓診斷 API |
+| 2026-09-11 | `ceaef83`（main） | 161,185 bytes（sha256 前 16 碼 `e58cd559d712b24e`） | PR #3 合入 main：B20 亂序遲到幀整幀丟棄、不重錨也不誤判感測器重開；含遲到幀統計與停頓診斷 API |
 
 ### 送進引擎的時間軸（P5）
 
