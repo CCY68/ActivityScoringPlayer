@@ -2,8 +2,11 @@
 
 package com.johnson.fitness.ui.playback
 
+import android.app.Activity
+import android.content.ContextWrapper
 import android.net.Uri
 import android.os.SystemClock
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -56,7 +59,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -149,11 +151,16 @@ fun PlaybackScreen(
     }
 
     // 播放頁全程保持螢幕常亮：課程一段動作可能數分鐘沒有任何遙控器輸入，Google TV 會進入螢幕保護
-    // （實測：模擬器播放中途進入 screensaver）。離開播放頁時還原，不影響其他畫面。
-    val hostView = LocalView.current
-    DisposableEffect(hostView) {
-        hostView.keepScreenOn = true
-        onDispose { hostView.keepScreenOn = false }
+    // （實測：模擬器播放中途進入 screensaver）。
+    // 這裡要設在 Activity 的 Window 上，設在 Compose hostView（子 View）上雖然理論上會經由
+    // ViewRootImpl 往上聚合，但實測 Android TV 的 Ambient Mode／螢幕保護仍會忽略，跟 Google 官方
+    // TV 播放文件（Ambient Mode 頁）教的做法一致：
+    // https://developer.android.com/training/tv/playback/ambient-mode
+    // 離開播放頁時還原，不影響其他畫面。
+    val activity = LocalContext.current.findActivity()
+    DisposableEffect(activity) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     val exoPlayer = remember {
@@ -1415,6 +1422,14 @@ private fun gradeColor(score: Int): Color = when {
 private fun Long.toTimeString(): String {
     val s = this / 1000
     return "%02d:%02d".format(s / 60, s % 60)
+}
+
+/** Compose 的 LocalContext 可能包一層 ContextWrapper（例如 ContextThemeWrapper），
+ *  要往上拆到真正的 Activity 才拿得到 Window（設定 FLAG_KEEP_SCREEN_ON 要用）。 */
+private tailrec fun android.content.Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 // ─── Previews ─────────────────────────────────────────────────────────────────
