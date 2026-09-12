@@ -473,6 +473,9 @@ fun PlaybackScreen(
                     participationHasData = state.participationHasData,
                     participationSeeked = state.participationSeeked,
                     showActivityStats = state.showActivityStats,
+                    physioParticipationAvailable = state.physioParticipationAvailable,
+                    physioHrAboveRestMs = state.physioHrAboveRestMs,
+                    physioHrAboveRestRatio = state.physioHrAboveRestRatio,
                     onBack         = { viewModel.onIntent(PlaybackIntent.BackPressed) }
                 )
             }
@@ -1150,6 +1153,11 @@ private fun FinalScoreCard(
     participationSeeked: Boolean = false,
     /** false（目前：太極）時只顯示參與時間、量測完整度與生理摘要，活動三項與三面向分數都不顯示（§9.2） */
     showActivityStats: Boolean = true,
+    // ── 生理參與（心率旁證，評分修復更新計畫 §13）─────────────────────────────────────
+    /** `false` ＝ 心率量測不足以判斷（缺測比例過高）；此時其餘兩個生理參與欄位不採用。 */
+    physioParticipationAvailable: Boolean = false,
+    physioHrAboveRestMs: Long = 0L,
+    physioHrAboveRestRatio: Float? = null,
     onBack: () -> Unit
 ) {
     // 固定 420dp 在手機直向/窄螢幕下可能比螢幕還寬；改成「撐滿可用寬度的 92%，但最多 420dp」，
@@ -1255,6 +1263,22 @@ private fun FinalScoreCard(
                 ).forEach { (label, value) ->
                     FinalMetricStat(value = value, label = label, modifier = Modifier.weight(1f))
                 }
+            }
+            // 生理參與（§13）：IMU 分不出「撐著姿勢」與「坐著休息」的課程（伸展／瑜珈／慢太極），
+            // 心率當一個獨立旁證放在這裡。太極（showActivityStats = false）也顯示——這一列不受
+            // showActivityStats 控制，跟上面熱量／心率／體溫同一套規則。
+            Spacer(Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                FinalMetricStat(
+                    value = physioParticipationLabel(
+                        available = physioParticipationAvailable,
+                        hrAboveRestMs = physioHrAboveRestMs,
+                        ratio = physioHrAboveRestRatio,
+                        seeked = participationSeeked
+                    ),
+                    label = "心率高於靜息的時間",
+                    modifier = Modifier.weight(1f)
+                )
             }
 
             // ── 輔助資訊：三面向分數（§9.5「三面向分數移到輔助資訊區塊」）──────────────────
@@ -1362,6 +1386,23 @@ private fun rhythmRegularityLabel(rhythmRegularity: Float?, hasData: Boolean): S
     !hasData || rhythmRegularity == null -> "－"
     rhythmRegularity >= 0.70f -> "規律"
     else -> "尚可"
+}
+
+/**
+ * 生理參與（心率旁證，§13）的呈現：「心率高於靜息的時間 xx 分（xx%）」。
+ * 心率缺測比例過高（Core `PhysioParticipation.available = false`）時顯示「心率量測不足」，
+ * 不折成 0 分鐘或空白——那會讓使用者誤以為「量到了、但沒有升高」。
+ * seek 過的課程與熱量／參與時間同一個時基，同樣顯示「－」（見上方熱量欄的說明）。
+ */
+private fun physioParticipationLabel(
+    available: Boolean,
+    hrAboveRestMs: Long,
+    ratio: Float?,
+    seeked: Boolean
+): String = when {
+    seeked -> "－"
+    !available || ratio == null -> "心率量測不足"
+    else -> "${activeMinutesLabel(hrAboveRestMs)}（${(ratio * 100).roundToInt()}%）"
 }
 
 /** FinalScoreCard 運動數據列的單一格：與下方「各面向評分」格子同一套視覺，數字改用較低調的主文字色。 */
@@ -1580,6 +1621,9 @@ private fun PlaybackFinalScorePreview() {
             rhythmRegularity = 0.537f,
             participationHasData = true,
             showActivityStats = true,
+            physioParticipationAvailable = true,
+            physioHrAboveRestMs = 612_000L,
+            physioHrAboveRestRatio = 0.334f,
             onBack = {}
         )
     }

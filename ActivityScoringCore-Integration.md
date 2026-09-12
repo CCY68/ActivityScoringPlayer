@@ -142,6 +142,37 @@ Core 1.2 起多一個**不是分數**的輸出：`engine.participation: StateFlo
   **手環整支斷線時 Core 不會再送 `HeartState`**（事件時間靠 IMU 樣本推進），所以 Player 另外用
   `elapsedRealtime` 每秒檢查一次；只在影片播放中計時，暫停期間不算逾時、續播從當下重新起算。
 
+### 生理參與（心率旁證，批次 D／評分修復更新計畫 §13）
+
+活動量極低的課程（伸展／瑜珈／慢太極）手腕可能長時間靜止，IMU 的活動參與指標（D2，見上）分不出
+「撐著姿勢」與「坐著休息」。心率**不進動作分數、不進 `activeMs`**——這裡只是一個獨立的生理旁證，
+放進成果卡的「生理摘要」，回答「這堂課心率有沒有比靜息時明顯升高、升高了多久」。
+
+`ExerciseSessionSummary` 在 `stop()` 時多一個欄位：
+
+```kotlin
+data class ExerciseSessionSummary(
+    val durationMs: Long,
+    val caloriesKcal: Float,
+    val physioParticipation: PhysioParticipation   // 新增
+)
+data class PhysioParticipation(
+    val available: Boolean,             // false＝心率缺測比例過高（>50%），其餘欄位不採用
+    val restingBpmBaseline: Float?,     // 本堂靜息基準；available=false 時為 null
+    val hrAboveRestMs: Long,            // 心率 ≥ 靜息基準+10 bpm 持續的累積時間（20 s 遲滯進出）
+    val measuredMs: Long,               // 本堂有心率量測的累積時間
+    val hrAboveRestRatio: Float?        // hrAboveRestMs / measuredMs；available=false 時為 null
+)
+```
+
+Player 成果卡「生理摘要」多一行「心率高於靜息的時間 xx 分（xx%）」，`available = false` 時顯示
+「心率量測不足」（`PlaybackScreen.kt` 的 `physioParticipationLabel()`）；**太極（`showActivityStats = false`
+的課程）也顯示這一行**——這一列跟熱量／平均心率／平均體溫同一套規則，不受 `showActivityStats` 控制。
+
+**已知限制**：服用心率鈍化藥物（β 阻斷劑等）的使用者運動中心率升幅可能遠低於 10 bpm，這種情況下
+`hrAboveRestRatio` 會偏低甚至為 0 即使實際有在運動；這是設計上的已知限制，本輪不針對這類族群另建
+個人化門檻（詳見 Core `docs/評分修復更新計畫_v1_20260907.md` §13.2）。
+
 ## 2. App 目前怎麼用它（實際呼叫路徑）
 
 App **不會直接**呼叫 `MafLoader`，是透過 `activity-scoring-core.aar` 提供的 `ScoringEngine.loadMaf(...)` 間接使用：

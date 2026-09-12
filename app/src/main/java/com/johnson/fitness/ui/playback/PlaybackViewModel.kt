@@ -814,7 +814,14 @@ class PlaybackViewModel(
                                 participationCoverage = participation.coverage,
                                 participationRhythmRegularity = participation.rhythmRegularity,
                                 participationHasData = participation.expectedMs > 0L && !seekedWhileScoring,
-                                participationSeeked = seekedWhileScoring
+                                participationSeeked = seekedWhileScoring,
+                                // 生理參與（§13）：與熱量／參與時間同一個 HeartRateSessionAnalyzer 時基，
+                                // 但本身不受 seek 影響的結論交給 Player 顯示層處理（同樣以 participationSeeked
+                                // 為準，理由與熱量欄一致：seek 過的 session 是以單調時間結算，跳過去的時間
+                                // 也會被計入）。
+                                physioParticipationAvailable = exerciseSession.physioParticipation.available,
+                                physioHrAboveRestMs = exerciseSession.physioParticipation.hrAboveRestMs,
+                                physioHrAboveRestRatio = exerciseSession.physioParticipation.hrAboveRestRatio
                             )
                         }
                     }

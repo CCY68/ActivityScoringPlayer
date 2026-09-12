@@ -97,6 +97,16 @@ data class PlaybackState(
     // 課程設定（CourseDisplaySettings）：false 的課程（太極）成果卡不顯示活動三項與三面向分數，
     // 只留參與時間、量測完整度與生理摘要（§9.2 弱訊號太極、§9.5）
     val showActivityStats: Boolean = true,
+
+    // ── 生理參與（心率旁證，評分修復更新計畫 §13）─────────────────────────────────────
+    // 不進動作分數、不進活動參與指標（activeMs），只是成果卡「生理摘要」的獨立旁證：
+    // 心率有沒有比本堂靜息基準明顯升高、升高了多久。太極（showActivityStats = false）也顯示。
+    // Core 的 ExerciseSessionSummary.physioParticipation 在 stop() 時一次性結算。
+    val physioParticipationAvailable: Boolean = false,
+    // 心率 ≥ 靜息基準 + 10 bpm（遲滯 20 s 進出）持續的累積時間 →「心率高於靜息的時間 xx 分」
+    val physioHrAboveRestMs: Long = 0L,
+    // hrAboveRestMs / measuredMs；不可用時為 null →「(xx%)」
+    val physioHrAboveRestRatio: Float? = null,
     val alertMessage: String? = null,
     // 窗口反饋文字（"動作標準！"）
     val feedbackLabel: String? = null,
