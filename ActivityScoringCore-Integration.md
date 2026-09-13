@@ -32,6 +32,9 @@ cp activity-scoring-core/build/outputs/aar/activity-scoring-core-release.aar \
 | 2026-09-11 | `2fe2cf7`（main） | 448,345 bytes | D1 前臂仰角通道（`ScoringConfig.elevationChannelEnabled` 預設 false，關閉時逐位元不變）、MAF `forearm_elevation_reference` 解析、靜止窗 planarity NaN 修正；Core 281/281 |
 | 2026-09-11 | `eba211b`（main） | 448,348 bytes（sha256 前 16 碼 `428c9ca14f219476`） | 以最新 main 重建；程式碼行為沿用 `2fe2cf7` 的 D1 仰角通道，後續 commit 為批次 B／C 成果與契約文件更新 |
 | 2026-09-11 | `d8b0675`（main） | 450,164 bytes | D1 仰角通道放開到無模板段（`Aspect.appliesTo`，通道預設仍關閉、關閉時逐位元不變）；Core 218/218 |
+| 2026-09-12 | `17c9a8c`（main） | — | 生理參與（心率旁證）指標 |
+| 2026-09-13 | `ec48c19`（main） | 478,737 bytes（sha256 前 16 碼 `ae7851b88cee43b0`） | A0 鼓勵為主：BoundaryAlign／HoldIoU／幅度通道的硬 0 在「窗內有活動」時改為軟性下限 0.3；幅度通道改比 MAF `motionEnergyRms` 中心值（PR-C3b）；A1 硬下界「活動樣本比例 < 0.20 → 0」（HOLD 除外） |
+| 2026-09-13 | `2cca06f`（main） | 501,074 bytes（sha256 前 16 碼 `c2ce8778b8f13799`） | **HOLD 段「進入體式」姿態變化閘門**（`ScoringConfig.holdEntryGateEnabled` 預設開）：HOLD 段沒有進入體式的證據時節奏與整個軌跡面向回 **null**（不是 0），有證據就照常評分並讓參與統計把整段算成活動（`ParticipationConfig.holdEntryCreditEnabled` 預設開）。D3（`holdPostureEnabled`）因此預設改為 true，但只在閘門通過的段生效。另：CYCLIC 段無 `wrist_tempo_hz` 且 `wrist_observability ≤ MEDIUM` 時 BeatMatch 的 0 分改回 null（`cyclicNullWithoutWristReference` 預設開）；非有限 value／confidence 一律回 null。**Player 不需改程式**（`EngineConfig.scoring`／`participation` 的新欄位都有預設值）；HOLD 課程（瑜珈、太極）的成果卡會看到「偵測到活動」變長、HOLD 段的分數在暖機／失敗時顯示「等待動作」而不是 0。Core 432/432 |
 
 ### 目前內建的 device-module.aar 版本
 
